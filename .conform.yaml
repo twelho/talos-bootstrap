@@ -1,0 +1,28 @@
+policies:
+  - type: commit
+    spec:
+      header:
+        length: 89
+        imperative: true
+        case: lower
+        invalidLastCharacters: .
+      dco: true
+      spellcheck:
+        locale: US
+      maximumOfOneCommit: true
+      conventional:
+        types:
+          - chore
+          - docs
+          - refactor
+          - test
+          - release
+  - type: license
+    spec:
+      skipPaths:
+        - .git/
+      includeSuffixes:
+        - .py
+      allowPrecedingComments: true
+      header: |
+        # SPDX-License-Identifier: MIT

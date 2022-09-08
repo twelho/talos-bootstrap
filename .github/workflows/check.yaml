@@ -1,0 +1,21 @@
+on:
+  pull_request:
+
+name: Check PR
+jobs:
+  conform:
+    name: Conformance
+    runs-on: ubuntu-latest
+    container:
+      image: golang:1
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Fetch master branch for reference
+        run: git fetch origin master:master
+      - name: Install siderolabs/conform
+        run: go install github.com/siderolabs/conform/cmd/conform@latest
+      - name: Run siderolabs/conform
+        run: conform enforce

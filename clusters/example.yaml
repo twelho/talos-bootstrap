@@ -1,0 +1,34 @@
+cluster:
+  name: example # The name of the cluster. The domain is appended to this to form a FQDN.
+  domain: home # The network domain that the cluster resides in. This is used for all nodes.
+  secrets: secrets/example/secrets.yaml # Cluster secrets file. Generate one with `talosctl gen secrets`.
+  #sops: secrets/example/sops.asc # Private key for Mozilla SOPS (https://github.com/mozilla/sops)
+  flux: # Configuration for Flux (GitOps)
+    url: ssh://git@server.home/example/flux # The source repository and path for Flux to track
+    branch: master # The branch in the repository for Flux to track
+    key: secrets/example/flux.key # Flux SSH key file for accessing the configuration repo. Generate with `ssh-keygen`.
+  patches: # Any cluster-wide patches to apply when creating the configuration with `talosctl gen config` (optional)
+    # Patch options can either be inline like described in
+    # https://www.talos.dev/v1.2/talos-guides/configuration/patching/#configuration-patching-with-talosctl-cli
+    # or loaded from a file by prefixing a path relative to the repository root with an @ character.
+    - '[{"op": "add", "path": "/machine/network/hostname", "value": "worker1"}]'
+    - "@patch/example.yaml"
+
+controlplane:
+  record: example-control-plane # The DNS record for the control plane. The domain is appended to this to form a FQDN.
+  patches: # Patches to apply to all control plane nodes (optional)
+    - "@patch/example.yaml"
+  nodes: # Addresses of the control plane nodes. DNS names are recommended, but static IPs should work as well.
+    talos-master-1: # Node-specific patches can be applied here as a list (optional)
+      - "@patch/example.yaml"
+    talos-master-2:
+    talos-master-3:
+
+worker:
+  patches: # Patches to apply to all worker nodes (optional)
+    - "@patch/example.yaml"
+  nodes: # Addresses of the worker nodes. DNS names are recommended, but static IPs should work as well.
+    talos-worker-1: # Node-specific patches can be applied here as a list (optional)
+      - "@patch/example.yaml"
+    talos-worker-2:
+    talos-worker-3:

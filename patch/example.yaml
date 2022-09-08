@@ -1,0 +1,7 @@
+# This is an example of the `talosctl` patch format. Strategic Merge Patches like these can be applied
+# to the machine configuration of control plane, worker or individual nodes to change the defaults.
+# Reference: https://www.talos.dev/v1.2/talos-guides/configuration/patching/#strategic-merge-patches
+machine:
+  kubelet:
+    extraArgs:
+      node-labels: topology.rook.io/chassis=myserver

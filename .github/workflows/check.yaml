@@ -1,5 +1,10 @@
 on:
+  push:
+    branches:
+      - master
   pull_request:
+    branches:
+      - master
 
 name: Check PR
 jobs:
@@ -12,6 +17,7 @@ jobs:
       - name: Check out sources
         uses: actions/checkout@v3
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
       - name: Fetch master branch for reference
         run: git fetch origin master:master
@@ -19,3 +25,22 @@ jobs:
         run: go install github.com/siderolabs/conform/cmd/conform@latest
       - name: Run siderolabs/conform
         run: conform enforce
+
+  lint:
+    name: Python Linting
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@v3
+      - name: Install Python dependencies
+        run: pip install black flake8
+      - name: Run wearerequired/lint-action
+        uses: wearerequired/lint-action@v2
+        with:
+          continue_on_error: false
+          black: true
+          flake8: true
+          flake8_args: --max-line-length 100

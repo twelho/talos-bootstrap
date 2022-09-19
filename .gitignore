@@ -1,0 +1,7 @@
+/secrets/**
+!/secrets/**/
+!/secrets/**/.gitkeep
+
+/controlplane.yaml
+/worker.yaml
+/talosconfig

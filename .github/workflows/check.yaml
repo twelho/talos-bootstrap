@@ -21,6 +21,7 @@ jobs:
           fetch-depth: 0
       - name: Fetch master branch for reference
         run: git fetch origin master:master
+        if: github.ref_name != 'master'
       - name: Install siderolabs/conform
         run: go install github.com/siderolabs/conform/cmd/conform@latest
       - name: Run siderolabs/conform

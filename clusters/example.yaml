@@ -2,7 +2,7 @@ cluster:
   name: example # The name of the cluster. The domain is appended to this to form a FQDN.
   domain: home # The network domain that the cluster resides in. This is used for all nodes.
   secrets: secrets/example/secrets.yaml # Cluster secrets file. Generate one with `talosctl gen secrets`.
-  #sops: secrets/example/sops.asc # Private key for Mozilla SOPS (https://github.com/mozilla/sops)
+  #sops: secrets/example/sops.asc # Private key for Mozilla SOPS (https://github.com/mozilla/sops) (optional)
   flux: # Configuration for Flux (GitOps)
     url: ssh://git@server.home/example/flux # The source repository and path for Flux to track
     branch: master # The branch in the repository for Flux to track

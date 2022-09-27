@@ -76,7 +76,7 @@ def with_domain(*parts):
 def command(name):
     binary = shutil.which(name)
     if not binary:
-        raise Exception(f"{binary} not found in PATH or not executable")
+        raise Exception(f"{name} not found in PATH or not executable")
     return lambda *a: [
         print("==>", " ".join([binary, *a])),
         subprocess.run([binary, *a]),

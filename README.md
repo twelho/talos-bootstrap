@@ -19,7 +19,7 @@ The [`bootstrap.py`](bootstrap.py) script automates the end-to-end setup of a Ta
 ./bootstrap.py clusters/<cluster>.yaml
 ```
 
-and monitoring the progress. The `bootstrap.py` script requires the `talosctl`, `helm` and `flux` binaries to be present in `$PATH`. First it will use `talosctl` to generate a configuration for the cluster and to patch the nodes, then it will apply the [Cilium](https://cilium.io/) CNI networking layer using `helm`, and finally it will use `flux` to install [Flux](https://fluxcd.io/) and point it to the upstream defined in the cluster configuration.
+and monitoring the progress. The `bootstrap.py` script requires the `talosctl`, `helm` and `flux` binaries to be present in `$PATH`. First it will use `talosctl` to generate a configuration for the cluster and to patch the nodes, then it will apply the [Cilium](https://cilium.io/) CNI networking layer using `helm`, and finally it will use `flux` to install [Flux](https://fluxcd.io/) and point it to the upstream defined in the cluster configuration. If a SOPS GPG key is supplied in the cluster configuration, `kubectl` is used to create the SOPS secret in the `flux-system` namespace before installing Flux.
 
 ## Secrets
 

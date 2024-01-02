@@ -114,7 +114,7 @@ controlplane_nodes = [with_domain(n) for n in config["controlplane"]["nodes"].ke
 
 # Apply cluster configuration to control plane nodes
 controlplane_patches = config["controlplane"].get("patches", [])
-for (node, node_patches) in config["controlplane"]["nodes"].items():
+for node, node_patches in config["controlplane"]["nodes"].items():
     talosctl(
         "apply-config",
         "--insecure",
@@ -131,7 +131,7 @@ for (node, node_patches) in config["controlplane"]["nodes"].items():
 
 # Apply cluster configuration to worker nodes
 worker_patches = config["worker"].get("patches", [])
-for (node, node_patches) in config["worker"]["nodes"].items():
+for node, node_patches in config["worker"]["nodes"].items():
     talosctl(
         "apply-config",
         "--insecure",

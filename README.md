@@ -9,7 +9,7 @@ Talos Bootstrap is an automated bootstrapping and configuration tool for deployi
 
 The [`bootstrap.py`](bootstrap.py) script depends on Python 3 and the `yaml` and `schema` Python packages.
 
-- Install the dependencies with `pip3 install pyyaml schema`.
+> Install the dependencies with `pip3 install -r requirements.txt`.
 
 ## Using the `bootstrap.py` script
 

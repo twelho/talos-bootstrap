@@ -1,21 +1,29 @@
 cluster:
-  name: example # The name of the cluster. The domain is appended to this to form a FQDN.
-  domain: home # The network domain that the cluster resides in. This is used for all nodes.
-  secrets: secrets/example/secrets.yaml # Cluster secrets file. Generate one with `talosctl gen secrets`.
-  #sops: secrets/example/sops.asc # Private key for Mozilla SOPS (https://github.com/mozilla/sops) (optional)
-  flux: # Configuration for Flux (GitOps)
-    url: ssh://git@server.home/example/flux # The source repository and path for Flux to track
-    branch: master # The branch in the repository for Flux to track
-    key: secrets/example/flux.key # Flux SSH key file for accessing the configuration repo. Generate with `ssh-keygen`.
+  name: my-cluster # The name of the cluster. The domain is appended to this to form a FQDN.
+  domain: example.com # The network domain that the cluster resides in. This is used for all nodes.
+  secrets: secrets/my-cluster/secrets.yaml # Cluster secrets file. Generate one with `talosctl gen secrets`.
+  sops: my-cluster.example.com # GPG ID/fingerprint of Mozilla SOPS key (https://github.com/mozilla/sops) (optional)
+  flux: # Configuration for Flux (GitOps) (optional)
+    # Install specific (extra) Flux components, see https://fluxcd.io/flux/components/ for details
+    components: source-controller,kustomize-controller # (optional)
+    components-extra: image-reflector-controller,image-automation-controller # (optional)
+    all-namespaces: true # Set to "false" to make Flux only watch the installation namespace (optional)
+    ssh: # Bootstrap Flux in SSH mode, otherwise, install without configuration (optional)
+      url: ssh://git@server.home/my-cluster/flux # The source repository and path for Flux to track
+      branch: master # The branch in the repository for Flux to track
+      # Flux SSH key file for accessing the configuration repo. Generate with `ssh-keygen`.
+      key: secrets/my-cluster/flux.key
   patches: # Any cluster-wide patches to apply when creating the configuration with `talosctl gen config` (optional)
     # Patch options can either be inline like described in
-    # https://www.talos.dev/v1.2/talos-guides/configuration/patching/#configuration-patching-with-talosctl-cli
+    # https://www.talos.dev/latest/talos-guides/configuration/patching/#configuration-patching-with-talosctl-cli
     # or loaded from a file by prefixing a path relative to the repository root with an @ character.
     - '[{"op": "add", "path": "/machine/network/hostname", "value": "worker1"}]'
     - "@patch/example.yaml"
+  # Kustomization directory for additional manifests to be applied into the cluster (optional)
+  manifests: manifests/my-cluster
 
 controlplane:
-  record: example-control-plane # The DNS record for the control plane. The domain is appended to this to form a FQDN.
+  record: my-cluster-control-plane # The control plane DNS record. The domain is appended to this to form a FQDN.
   patches: # Patches to apply to all control plane nodes (optional)
     - "@patch/example.yaml"
   nodes: # Addresses of the control plane nodes. DNS names are recommended, but static IPs should work as well.
@@ -27,7 +35,7 @@ controlplane:
 worker:
   patches: # Patches to apply to all worker nodes (optional)
     - "@patch/example.yaml"
-  nodes: # Addresses of the worker nodes. DNS names are recommended, but static IPs should work as well.
+  nodes: # Addresses of the worker nodes. DNS names are recommended, but static IPs should work as well. (optional)
     talos-worker-1: # Node-specific patches can be applied here as a list (optional)
       - "@patch/example.yaml"
     talos-worker-2:

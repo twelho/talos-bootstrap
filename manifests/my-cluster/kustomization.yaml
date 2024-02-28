@@ -1,0 +1,5 @@
+# Additional static manifests can be applied to the cluster post-bootstrap
+# using Kustomizations from the Kustomize project: https://kustomize.io/
+
+resources:
+  - my-app.yaml

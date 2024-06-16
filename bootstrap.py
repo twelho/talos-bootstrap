@@ -252,7 +252,7 @@ def main():
     controlplane_endpoints = [fqdn(n) for n in config["controlplane"]["nodes"].keys()]
     worker_endpoints = [fqdn(n) for n in config["worker"]["nodes"].keys()]
 
-    # Generate and update talosconfig and kubeconfig
+    # Generate and update talosconfig
     talosctl(
         "--talosconfig", "talosconfig", "config", "endpoint", *controlplane_endpoints
     )
@@ -260,11 +260,9 @@ def main():
         "--talosconfig", "talosconfig", "config", "node", controlplane_endpoints[0]
     )
     talosctl("config", "merge", "talosconfig")
-    talosctl("kubeconfig", stdin="r\n")  # Always rename existing configs
 
-    # Ensure proper config permissions
-    for path in ["~/.kube/config", "~/.talos/config"]:
-        os.chmod(os.path.expanduser(path), 0o600)
+    # Ensure proper talosconfig permissions
+    os.chmod(os.path.expanduser("~/.talos/config"), 0o600)
 
     # Bootstrap the cluster if all nodes are marked to be bootstrapped
     if args.bootstrap.keys() == all_nodes:
@@ -296,6 +294,12 @@ def main():
             "--wait=false",  # We can't wait here, the cluster won't become ready without CNI
         )
 
+        # Wait a few seconds for the nodes to switch into rebooting stage
+        time.sleep(5)
+
+        for node in to_reboot:
+            wait_stage(node, "running")  # Then, wait for the nodes to complete reboot
+
     # Stop here if we're only bootstrapping/configuring Talos
     if args.skip_cluster_configuration:
         exit(0)
@@ -303,6 +307,12 @@ def main():
     # Kubernetes API operations are available after this
     print("Waiting for the control plane to respond...")
     wait_socket(fqdn(config["controlplane"]["record"]), 6443)
+
+    # Generate and update kubeconfig
+    talosctl("kubeconfig", stdin="r\n")  # Always rename existing configs
+
+    # Ensure proper kubeconfig permissions
+    os.chmod(os.path.expanduser(os.getenv("KUBECONFIG", "~/.kube/config")), 0o600)
 
     # Options for bootstrapping Cilium
     cilium_opts = [

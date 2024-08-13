@@ -31,7 +31,7 @@ config_schema = Schema(
     {
         "cluster": {
             "name": str_schema,
-            "domain": str_schema,
+            Optional("domain"): str_schema,
             "secrets": file_schema,
             Optional("sops"): str_schema,
             Optional("flux"): {
@@ -49,6 +49,7 @@ config_schema = Schema(
         },
         "controlplane": {
             "record": str_schema,
+            Optional("record-as-endpoint"): bool,
             Optional("patches"): patch_schema,
             "nodes": {str_schema: Or(patch_schema, None)},
         },
@@ -184,8 +185,9 @@ def main():
     except SchemaError as se:
         raise se
 
-    # Initialize empty dicts for easier processing
-    config["worker"]["nodes"] = config["worker"]["nodes"] or {}
+    # Initialize empty variables for easier processing
+    config["worker"]["nodes"] = config["worker"].get("nodes", {})
+    config["cluster"]["domain"] = config["cluster"].get("domain", "")
     args.bootstrap = args.bootstrap or {}
 
     # Validate given arguments
@@ -199,7 +201,7 @@ def main():
 
     # Append the domain to the given URI parts
     def fqdn(*parts):
-        return ".".join([*parts, config["cluster"]["domain"]])
+        return ".".join(filter(None, [*parts, config["cluster"]["domain"]]))
 
     # Apply a configuration file to a set of nodes including the given global patches
     def apply_configuration(node_set, configuration_file, global_patches):
@@ -249,16 +251,18 @@ def main():
     )
 
     # Form a list of the FQDNs/endpoints for control plane and worker nodes
-    controlplane_endpoints = [fqdn(n) for n in config["controlplane"]["nodes"].keys()]
-    worker_endpoints = [fqdn(n) for n in config["worker"]["nodes"].keys()]
+    control_plane_nodes = [fqdn(n) for n in config["controlplane"]["nodes"].keys()]
+    worker_nodes = [fqdn(n) for n in config["worker"]["nodes"].keys()]
+
+    # Use all control plane nodes as endpoints by default
+    endpoints = control_plane_nodes
+    if config["controlplane"].get("record-as-endpoint"):
+        # Switch to using the record instead if requested (e.g., for remote cluster)
+        endpoints = [fqdn(config["controlplane"]["record"])]
 
     # Generate and update talosconfig
-    talosctl(
-        "--talosconfig", "talosconfig", "config", "endpoint", *controlplane_endpoints
-    )
-    talosctl(
-        "--talosconfig", "talosconfig", "config", "node", controlplane_endpoints[0]
-    )
+    talosctl("--talosconfig", "talosconfig", "config", "endpoint", *endpoints)
+    talosctl("--talosconfig", "talosconfig", "config", "node", control_plane_nodes[0])
     talosctl("config", "merge", "talosconfig")
 
     # Ensure proper talosconfig permissions
@@ -269,17 +273,17 @@ def main():
         # There is supposedly a separate "installing" stage, so this should wait until installation
         # has finished, but this hasn't been verified yet (installation goes too fast if the node
         # already has the images, which is the case during repeated testing)
-        wait_stage(controlplane_endpoints[0], "booting")
-        talosctl("bootstrap", "--nodes", controlplane_endpoints[0])
+        wait_stage(control_plane_nodes[0], "booting")
+        talosctl("bootstrap", "--nodes", control_plane_nodes[0])
 
     if len(args.bootstrap):
         to_reboot = [fqdn(node) for node in args.bootstrap.keys()]
-        for node in set(to_reboot) & set(controlplane_endpoints):
+        for node in set(to_reboot) & set(control_plane_nodes):
             wait_stage(
                 node, "running"
             )  # Wait for the control plane nodes to start running
 
-        for node in set(to_reboot) & set(worker_endpoints):
+        for node in set(to_reboot) & set(worker_nodes):
             wait_stage(
                 node, "running"
             )  # Then, wait for the worker nodes to start running
@@ -306,6 +310,8 @@ def main():
 
     # Kubernetes API operations are available after this
     print("Waiting for the control plane to respond...")
+    # If applying configuration caused a reboot, wait for the node(s) to go down first
+    time.sleep(5)
     wait_socket(fqdn(config["controlplane"]["record"]), 6443)
 
     # Generate and update kubeconfig
@@ -335,9 +341,9 @@ def main():
         "hubble.relay.enabled=true",
         "hubble.metrics.enableOpenMetrics=true",
         "hubble.metrics.enabled={dns,drop,tcp,flow,port-distribution,icmp,"
-        "httpV2:exemplars=true;labelsContext=source_ip\,source_namespace\,"  # noqa: W605
-        "source_workload\,destination_ip\,destination_namespace\,"  # noqa: W605
-        "destination_workload\,traffic_direction}",  # noqa: W605
+        "httpV2:exemplars=true;labelsContext=source_ip\\,source_namespace\\,"
+        "source_workload\\,destination_ip\\,destination_namespace\\,"
+        "destination_workload\\,traffic_direction}",
         # Network hardening
         "policyEnforcementMode=always",  # Enforce network policies
         "policyAuditMode=true",  # Audit mode, do not block traffic (DISABLE WHEN CONFIGURED!)

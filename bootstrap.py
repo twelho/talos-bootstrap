@@ -33,6 +33,17 @@ config_schema = Schema(
             "name": str_schema,
             Optional("domain"): str_schema,
             "secrets": file_schema,
+            Optional("cilium"): {
+                Optional("metrics"): bool,
+                Optional("hubble"): {
+                    "enabled": bool,
+                    Optional("metrics"): bool,
+                },
+                Optional("hardening"): {
+                    "enabled": bool,
+                    "audit-mode": bool,
+                },
+            },
             Optional("sops"): str_schema,
             Optional("flux"): {
                 Optional("components"): str_schema,
@@ -200,8 +211,9 @@ def main():
         raise se
 
     # Initialize empty variables for easier processing
-    config["worker"]["nodes"] = config["worker"]["nodes"] or {}
     config["cluster"]["domain"] = config["cluster"].get("domain", "")
+    config["cluster"]["cilium"] = config["cluster"].get("cilium", {})
+    config["worker"]["nodes"] = config["worker"]["nodes"] or {}
     args.bootstrap = args.bootstrap or {}
 
     # Validate given arguments
@@ -334,37 +346,6 @@ def main():
     # Ensure proper kubeconfig permissions
     os.chmod(os.path.expanduser(os.getenv("KUBECONFIG", "~/.kube/config")), 0o600)
 
-    # Options for bootstrapping Cilium
-    cilium_opts = [
-        "ipam.mode=kubernetes",
-        "kubeProxyReplacement=true",
-        "securityContext.capabilities.ciliumAgent={CHOWN,KILL,NET_ADMIN,NET_RAW,IPC_LOCK,"
-        "SYS_ADMIN,SYS_RESOURCE,DAC_OVERRIDE,FOWNER,SETGID,SETUID}",
-        "securityContext.capabilities.cleanCiliumState={NET_ADMIN,SYS_ADMIN,SYS_RESOURCE}",
-        "cgroup.autoMount.enabled=false",
-        "cgroup.hostRoot=/sys/fs/cgroup",
-        # Handled by KubePrism
-        # (https://www.talos.dev/latest/kubernetes-guides/configuration/kubeprism/)
-        "k8sServiceHost=localhost",
-        "k8sServicePort=7445",
-        "prometheus.enabled=true",  # cilium-agent metrics
-        "operator.prometheus.enabled=true",  # cilium-operator metrics
-        # Enable Hubble and all the metrics
-        "hubble.enabled=true",
-        "hubble.ui.enabled=true",
-        "hubble.relay.enabled=true",
-        "hubble.metrics.enableOpenMetrics=true",
-        "hubble.metrics.enabled={dns,drop,tcp,flow,port-distribution,icmp,"
-        "httpV2:exemplars=true;labelsContext=source_ip\\,source_namespace\\,"
-        "source_workload\\,destination_ip\\,destination_namespace\\,"
-        "destination_workload\\,traffic_direction}",
-        # Network hardening
-        "policyEnforcementMode=always",  # Enforce network policies
-        "policyAuditMode=true",  # Audit mode, do not block traffic (DISABLE WHEN CONFIGURED!)
-        "hostFirewall.enabled=true",  # Enable host policies (host-level network policies)
-        "extraConfig.allow-localhost=policy",  # Enforce policies for node-local traffic as well
-    ]
-
     # Discover resource types from the API server, where
     # the first namespaced_count resources are namespaced
     resource_types = []
@@ -428,6 +409,62 @@ def main():
             "kube-proxy",
             silent=True,
         )
+
+    # Options for bootstrapping Cilium
+    cilium_opts = [
+        "ipam.mode=kubernetes",
+        "kubeProxyReplacement=true",
+        "securityContext.capabilities.ciliumAgent={CHOWN,KILL,NET_ADMIN,NET_RAW,IPC_LOCK,"
+        "SYS_ADMIN,SYS_RESOURCE,DAC_OVERRIDE,FOWNER,SETGID,SETUID}",
+        "securityContext.capabilities.cleanCiliumState={NET_ADMIN,SYS_ADMIN,SYS_RESOURCE}",
+        "cgroup.autoMount.enabled=false",
+        "cgroup.hostRoot=/sys/fs/cgroup",
+        # Handled by KubePrism
+        # (https://www.talos.dev/latest/kubernetes-guides/configuration/kubeprism/)
+        "k8sServiceHost=localhost",
+        "k8sServicePort=7445",
+    ]
+
+    if config["cluster"]["cilium"].get("metrics"):
+        cilium_opts += [
+            "prometheus.enabled=true",  # cilium-agent metrics
+            "operator.prometheus.enabled=true",  # cilium-operator metrics
+        ]
+
+    if hubble := config["cluster"]["cilium"].get("hubble"):
+        enabled = "true" if hubble["enabled"] else "false"
+        cilium_opts += [
+            f"hubble.enabled={enabled}",  # Enable Hubble (CLI)
+            f"hubble.ui.enabled={enabled}",  # Enable Hubble UI
+            f"hubble.relay.enabled={enabled}",  # Enable Hubble Relay
+        ]
+        if hubble["enabled"] and hubble.get("metrics"):
+            # Hubble metrics
+            cilium_opts += [
+                "hubble.metrics.enableOpenMetrics=true",
+                "hubble.metrics.enabled={dns,drop,tcp,flow,port-distribution,icmp,"
+                "httpV2:exemplars=true;labelsContext=source_ip\\,source_namespace\\,"
+                "source_workload\\,destination_ip\\,destination_namespace\\,"
+                "destination_workload\\,traffic_direction}",
+            ]
+
+    enable_hardening = True
+    enable_audit_mode = True
+    if hardening := config["cluster"]["cilium"].get("hardening"):
+        enable_hardening = hardening["enabled"]
+        enable_audit_mode = hardening["audit-mode"]
+
+    if enable_hardening:
+        cilium_opts += [
+            "policyEnforcementMode=always",  # Enforce network policies
+            "hostFirewall.enabled=true",  # Enable host policies (host-level network policies)
+            "extraConfig.allow-localhost=policy",  # Enforce policies for node-local traffic as well
+        ]
+
+    if enable_audit_mode:
+        cilium_opts += [
+            "policyAuditMode=true",  # Audit mode, do not block traffic
+        ]
 
     # Add Helm repo for Cilium
     helm("repo", "add", "cilium", "https://helm.cilium.io/")

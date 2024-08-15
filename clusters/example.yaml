@@ -2,6 +2,18 @@ cluster:
   name: my-cluster # The name of the cluster. The domain is appended to this to form a FQDN.
   domain: example.com # The network domain that the cluster resides in, used for all nodes (optional)
   secrets: secrets/my-cluster/secrets.yaml # Cluster secrets file. Generate one with `talosctl gen secrets`.
+  cilium: # Specify additional configuration for the Cilium installation (optional)
+    metrics: false # Enable cilium-agent and cilium-operator metrics (optional)
+    hubble: # Configure Cilium Hubble (optional)
+      enabled: false # Enable Hubble with Hubble UI
+      metrics: false # Enable Hubble metrics collection (optional)
+    hardening: # Hardening options for Cilium (optional)
+      enabled: true # Harden the Cilium installation: all permitted traffic must have a matching NetworkPolicy
+      # Start in audit mode: NetworkPolicy violations (including lack of policies) will be logged instead of denied
+      # IMPORTANT: NetworkPolicies MUST be configured to permit API access to the cluster before switching this to
+      # false, otherwise the cluster will be rendered INACCESSIBLE! Production deployments MUST set this to false,
+      # otherwise NetworkPolicies will NOT BE ENFORCED!
+      audit-mode: true
   sops: my-cluster.example.com # GPG ID/fingerprint of Mozilla SOPS key (https://github.com/mozilla/sops) (optional)
   flux: # Configuration for Flux (GitOps) (optional)
     # Install specific (extra) Flux components, see https://fluxcd.io/flux/components/ for details

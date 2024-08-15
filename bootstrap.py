@@ -85,7 +85,14 @@ def command(name):
     if not binary:
         raise Exception(f"{name} not found in PATH or not executable")
 
-    def inner(*a, stdin=None, capture_output=False, silent=False, fatal=True):
+    def inner(
+        *a,
+        stdin=None,
+        capture_stdout=False,
+        capture_stderr=False,
+        silent=False,
+        fatal=True,
+    ):
         args = [
             binary,
             *[e for e in a if e is not None],
@@ -93,7 +100,11 @@ def command(name):
         if not silent:
             print("==>", " ".join(args))
         result = subprocess.run(
-            args, input=stdin, capture_output=capture_output, text=True
+            args,
+            input=stdin,
+            stdout=subprocess.PIPE if capture_stdout else None,
+            stderr=subprocess.PIPE if capture_stderr else None,
+            text=True,
         )
         if result.returncode != 0 and fatal:
             exit(result.returncode)
@@ -126,7 +137,8 @@ def wait_stage(node, stage):
             "--nodes",
             node,
             "-oyaml",
-            capture_output=True,
+            capture_stdout=True,
+            capture_stderr=True,
             silent=True,
             fatal=False,
         )
@@ -147,7 +159,9 @@ def check_resource(name, namespace=None):
     if namespace:
         args += ["--namespace", namespace]
 
-    result = kubectl(*args, capture_output=True, silent=True, fatal=False)
+    result = kubectl(
+        *args, capture_stdout=True, capture_stderr=True, silent=True, fatal=False
+    )
     return result.returncode == 0
 
 
@@ -186,7 +200,7 @@ def main():
         raise se
 
     # Initialize empty variables for easier processing
-    config["worker"]["nodes"] = config["worker"].get("nodes", {})
+    config["worker"]["nodes"] = config["worker"]["nodes"] or {}
     config["cluster"]["domain"] = config["cluster"].get("domain", "")
     args.bootstrap = args.bootstrap or {}
 
@@ -350,6 +364,70 @@ def main():
         "hostFirewall.enabled=true",  # Enable host policies (host-level network policies)
         "extraConfig.allow-localhost=policy",  # Enforce policies for node-local traffic as well
     ]
+
+    # Discover resource types from the API server, where
+    # the first namespaced_count resources are namespaced
+    resource_types = []
+    namespaced_count = 0
+
+    # Excluded resource types that cause trouble
+    excluded_types = {
+        "componentstatuses",
+        "validatingadmissionpolicies.admissionregistration.k8s.io",
+        "validatingadmissionpolicybindings.admissionregistration.k8s.io",
+    }
+
+    for namespaced in ["true", "false"]:
+        result = kubectl(
+            "api-resources",
+            "--verbs=list",
+            "-o=name",
+            f"--namespaced={namespaced}",
+            capture_stdout=True,
+        )
+        resource_types += [
+            resource_type
+            for resource_type in result.stdout.strip().split("\n")
+            if resource_type not in excluded_types
+        ]
+        namespaced_count = namespaced_count or len(resource_types)
+
+    print("> Cleaning up Flannel resources...")
+    for count, resource_type in enumerate(resource_types):
+        # Talos resource declarations: `pkg/flannel/template.go`
+        result = kubectl(
+            "--namespace=kube-system" if count < namespaced_count else None,
+            "delete",
+            "--ignore-not-found",
+            "--selector=k8s-app=flannel",
+            resource_type,
+            capture_stdout=True,
+            silent=True,
+        )
+
+        # Suppress "No resources found", can't be done natively
+        print(
+            "\n".join(
+                (
+                    line
+                    for line in result.stdout.split("\n")
+                    if line != "No resources found"
+                )
+            ),
+            end="",
+        )
+
+    print("> Cleaning up kube-proxy resources...")
+    for count, resource_type in enumerate(resource_types):
+        # Talos resource declarations: `internal/app/machined/pkg/controllers/k8s/templates.go`
+        kubectl(
+            "--namespace=kube-system" if count < namespaced_count else None,
+            "delete",
+            "--ignore-not-found",
+            resource_type,
+            "kube-proxy",
+            silent=True,
+        )
 
     # Add Helm repo for Cilium
     helm("repo", "add", "cilium", "https://helm.cilium.io/")

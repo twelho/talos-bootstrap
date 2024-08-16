@@ -2,8 +2,11 @@
 
 Talos Bootstrap is an automated bootstrapping and configuration tool for deploying [Talos Linux](https://www.talos.dev/) clusters once they have been provisioned. The repository is structured as follows:
 
-- [`clusters`](clusters) contains the bootstrap configuration for various clusters, each in their own file. Create a new file here to configure a new cluster. Take a look at [`example.yaml`](clusters/example.yaml) for the configuration schema.
+- [`clusters`](clusters) contains the bootstrap configuration for various clusters, each in their own file. Create a new file here to configure a new cluster. Take a look at [`clusters/example.yaml`](clusters/example.yaml) for the configuration schema.
 - [`patch`](patch) contains the various strategic merge patches that are applied to the machine configurations of nodes as instrumented by the configurations in `clusters`. Take a look at [`example.yaml`](patch/example.yaml) for detailed information about the patch format.
+
+> [!IMPORTANT]
+> The bootstrap configuration file schema is intentionally unstable. Upon updating `talos-bootstrap`, one might need to update existing cluster configuration files to match the new schema. However, the strict validation logic should help with pointing out issues, such as changed fields. When updating cluster configuration, please refer to [`clusters/example.yaml`](clusters/example.yaml), which will always comply with the current schema and describe the fields.
 
 ## Installation
 

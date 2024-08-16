@@ -346,11 +346,6 @@ def main():
     # Ensure proper kubeconfig permissions
     os.chmod(os.path.expanduser(os.getenv("KUBECONFIG", "~/.kube/config")), 0o600)
 
-    # Discover resource types from the API server, where
-    # the first namespaced_count resources are namespaced
-    resource_types = []
-    namespaced_count = 0
-
     # Excluded resource types that cause trouble
     excluded_types = {
         "componentstatuses",
@@ -358,56 +353,44 @@ def main():
         "validatingadmissionpolicybindings.admissionregistration.k8s.io",
     }
 
-    for namespaced in ["true", "false"]:
+    # Discover non-namespaced and namespaced resource types from the API server
+    resource_types = []
+    for i in range(2):
         result = kubectl(
             "api-resources",
             "--verbs=list",
             "-o=name",
-            f"--namespaced={namespaced}",
+            "--namespaced=%s" % ("true" if i else "false"),
             capture_stdout=True,
         )
-        resource_types += [
-            resource_type
-            for resource_type in result.stdout.strip().split("\n")
-            if resource_type not in excluded_types
-        ]
-        namespaced_count = namespaced_count or len(resource_types)
+        resource_types.append(
+            ",".join(
+                (
+                    resource_type
+                    for resource_type in result.stdout.strip().split("\n")
+                    if resource_type not in excluded_types
+                )
+            )
+        )
 
-    print("> Cleaning up Flannel resources...")
-    for count, resource_type in enumerate(resource_types):
-        # Talos resource declarations: `pkg/flannel/template.go`
-        result = kubectl(
-            "--namespace=kube-system" if count < namespaced_count else None,
+    print("Cleaning up Flannel resources...")
+    for i in range(2):
+        kubectl(
+            "--namespace=kube-system" if i else None,
             "delete",
             "--ignore-not-found",
             "--selector=k8s-app=flannel",
-            resource_type,
-            capture_stdout=True,
-            silent=True,
+            resource_types[i],
         )
 
-        # Suppress "No resources found", can't be done natively
-        print(
-            "\n".join(
-                (
-                    line
-                    for line in result.stdout.split("\n")
-                    if line != "No resources found"
-                )
-            ),
-            end="",
-        )
-
-    print("> Cleaning up kube-proxy resources...")
-    for count, resource_type in enumerate(resource_types):
-        # Talos resource declarations: `internal/app/machined/pkg/controllers/k8s/templates.go`
+    print("Cleaning up kube-proxy resources...")
+    for i in range(2):
         kubectl(
-            "--namespace=kube-system" if count < namespaced_count else None,
+            "--namespace=kube-system" if i else None,
             "delete",
             "--ignore-not-found",
-            resource_type,
+            resource_types[i],
             "kube-proxy",
-            silent=True,
         )
 
     # Options for bootstrapping Cilium

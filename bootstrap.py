@@ -141,7 +141,7 @@ def wait_socket(host, port):
 
 # Utility for waiting for a node to reach a given stage
 def wait_stage(node, stage):
-    print(f'"Waiting for {node} to reach stage "{stage}"..."')
+    print(f'Waiting for {node} to reach stage "{stage}"...')
     while True:
         result = talosctl(
             "get",

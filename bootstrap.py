@@ -513,9 +513,6 @@ def main():
         *[e for o in cilium_opts for e in ("--set", o)],
     )
 
-    # Wait for the cluster to be healthy
-    talosctl("health")
-
     # Add Mozilla SOPS key
     if "sops" in config["cluster"] and not check_resource(
         "secret/sops-gpg", namespace="flux-system"
@@ -593,6 +590,9 @@ def main():
         # Apply CRDs before everything else
         kubectl("apply", "-f", "-", stdin=yaml.safe_dump_all(crds))
         kubectl("apply", "-f", "-", stdin=yaml.safe_dump_all(manifests))
+
+    # Wait for the cluster to be healthy
+    talosctl("health")
 
 
 if __name__ == "__main__":

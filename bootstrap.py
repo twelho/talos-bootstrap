@@ -406,6 +406,12 @@ def main():
         # (https://www.talos.dev/latest/kubernetes-guides/configuration/kubeprism/)
         "k8sServiceHost=localhost",
         "k8sServicePort=7445",
+        # Enable automatic rollout of configuration updates
+        "rollOutCiliumPods=true",
+        "envoy.rollOutPods=true",
+        "hubble.relay.rollOutPods=true",
+        "hubble.ui.rollOutPods=true",
+        "operator.rollOutPods=true",
     ]
 
     if config["cluster"]["cilium"].get("metrics"):

@@ -55,6 +55,7 @@ config_schema = Schema(
                     "key": file_schema,
                 },
             },
+            Optional("image"): str_schema,
             Optional("patches"): patch_schema,
             Optional("manifests"): dir_schema,
         },
@@ -250,6 +251,14 @@ def main():
                 ],
             )
 
+    # Parse the custom installation image if specified
+    if image := config["cluster"].get("image"):
+        if ":" not in image:
+            version = talosctl(
+                "version", "--client", "--short", capture_stdout=True
+            ).stdout.split()[-1]
+            image = f"{image}:{version}"
+
     # Generate cluster configuration
     talosctl(
         "gen",
@@ -257,6 +266,7 @@ def main():
         config["cluster"]["name"],
         f"https://{fqdn(config['controlplane']['record'])}:6443",
         "--force",
+        *["--install-image", image] if image else None,
         "--with-secrets",
         config["cluster"]["secrets"],
         *[e for p in config["cluster"]["patches"] for e in ("--config-patch", p)],

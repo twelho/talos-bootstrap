@@ -25,6 +25,9 @@ cluster:
       branch: master # The branch in the repository for Flux to track
       # Flux SSH key file for accessing the configuration repo. Generate with `ssh-keygen`.
       key: secrets/my-cluster/flux.key
+  # Specify a customized installation image, for example, from https://factory.talos.dev/ (optional).
+  # Applied to all nodes. If no tag is given, the CLI version is used, enabling automatic upgrades.
+  image: factory.talos.dev/installer-secureboot/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba
   patches: # Any cluster-wide patches to apply when creating the configuration with `talosctl gen config` (optional)
     # Patch options can either be inline like described in
     # https://www.talos.dev/latest/talos-guides/configuration/patching/#configuration-patching-with-talosctl-cli

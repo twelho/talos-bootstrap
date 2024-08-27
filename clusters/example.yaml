@@ -14,6 +14,14 @@ cluster:
       # false, otherwise the cluster will be rendered INACCESSIBLE! Production deployments MUST set this to false,
       # otherwise NetworkPolicies will NOT BE ENFORCED!
       audit-mode: true
+    gateway-api: # Configure Cilium Gateway API support (optional)
+      # Enable Gateway API support, note that the CRDs must still be installed separately according to
+      # https://docs.cilium.io/en/latest/network/servicemesh/gateway-api/gateway-api/
+      enabled: false
+      # Enable host network mode, this allows Envoy to bind directly to host ports
+      # (in the style of NodePort) without requiring a LoadBalancer service (optional)
+      host-network: false
+      privileged-ports: false # Allow Envoy to bind to ports <1024 when using Gateway API (optional)
   sops: my-cluster.example.com # GPG ID/fingerprint of Mozilla SOPS key (https://github.com/mozilla/sops) (optional)
   flux: # Configuration for Flux (GitOps) (optional)
     # Install specific (extra) Flux components, see https://fluxcd.io/flux/components/ for details

@@ -266,7 +266,7 @@ def main():
         config["cluster"]["name"],
         f"https://{fqdn(config['controlplane']['record'])}:6443",
         "--force",
-        *["--install-image", image] if image else None,
+        *["--install-image", image] if image else [],
         "--with-secrets",
         config["cluster"]["secrets"],
         *[e for p in config["cluster"]["patches"] for e in ("--config-patch", p)],

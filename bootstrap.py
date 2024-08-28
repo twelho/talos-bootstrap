@@ -43,6 +43,11 @@ config_schema = Schema(
                     "enabled": bool,
                     "audit-mode": bool,
                 },
+                Optional("gateway-api"): {
+                    "enabled": bool,
+                    Optional("host-network"): bool,
+                    Optional("privileged-ports"): bool,
+                },
             },
             Optional("sops"): str_schema,
             Optional("flux"): {
@@ -370,7 +375,7 @@ def main():
             "api-resources",
             "--verbs=list",
             "-o=name",
-            "--namespaced=%s" % ("true" if i else "false"),
+            f"--namespaced={'true' if i else 'false'}",
             capture_stdout=True,
         )
         resource_types.append(
@@ -464,6 +469,25 @@ def main():
         cilium_opts += [
             "policyAuditMode=true",  # Audit mode, do not block traffic
         ]
+
+    # Normally Envoy has SYS_ADMIN, but that can be replaced with PERFMON and BPF, see
+    # https://github.com/cilium/cilium/blob/v1.16.1/install/kubernetes/cilium/values.yaml#L2263-L2271
+    envoy_caps = ["NET_ADMIN", "PERFMON", "BPF"]
+    if gw_api := config["cluster"]["cilium"].get("gateway-api"):
+        if gw_api["enabled"]:
+            cilium_opts += ["gatewayAPI.enabled=true"]
+            if gw_api.get("host-network"):
+                cilium_opts += ["gatewayAPI.hostNetwork.enabled=true"]
+            if gw_api.get("privileged-ports"):
+                # https://docs.cilium.io/en/stable/network/servicemesh/gateway-api/gateway-api/#bind-to-privileged-port
+                cilium_opts += [
+                    "envoy.securityContext.capabilities.keepCapNetBindService=true"
+                ]
+                envoy_caps += ["NET_BIND_SERVICE"]
+
+    cilium_opts += [
+        f"envoy.securityContext.capabilities.envoy={{{','.join(envoy_caps)}}}"
+    ]
 
     # Add Helm repo for Cilium
     helm("repo", "add", "cilium", "https://helm.cilium.io/")

@@ -429,6 +429,15 @@ def main():
         "operator.rollOutPods=true",
     ]
 
+    # Cilium deploys its operator with 2 replicas by default, which may impede it becoming ready in
+    # certain cluster configurations. Do a best-effort guess whether we should limit the replicas to
+    # one: either there is just one worker node, or if there are no worker nodes the user likely has
+    # removed the control plane node taint, at which point there might still be just one node total.
+    if len(worker_nodes) == 1 or (
+        len(worker_nodes) == 0 and len(control_plane_nodes) == 1
+    ):
+        cilium_opts += ["operator.replicas=1"]
+
     if config["cluster"]["cilium"].get("metrics"):
         cilium_opts += [
             "prometheus.enabled=true",  # cilium-agent metrics

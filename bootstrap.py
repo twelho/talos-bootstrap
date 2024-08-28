@@ -566,8 +566,24 @@ def main():
         flux(*flux_opts)
 
     # Apply additional manifests as a Kustomization
-    if "manifests" in config["cluster"]:
-        kubectl("apply", "-k", config["cluster"]["manifests"])
+    if manifest_dir := config["cluster"].get("manifests"):
+        manifests, crds = [], []
+        for manifest in yaml.safe_load_all(
+            kubectl(
+                "kustomize", "--enable-helm", manifest_dir, capture_stdout=True
+            ).stdout
+        ):
+            if (
+                manifest.get("apiVersion") == "apiextensions.k8s.io/v1"
+                and manifest.get("kind") == "CustomResourceDefinition"
+            ):
+                crds.append(manifest)
+            else:
+                manifests.append(manifest)
+
+        # Apply CRDs before everything else
+        kubectl("apply", "-f", "-", stdin=yaml.safe_dump_all(crds))
+        kubectl("apply", "-f", "-", stdin=yaml.safe_dump_all(manifests))
 
 
 if __name__ == "__main__":

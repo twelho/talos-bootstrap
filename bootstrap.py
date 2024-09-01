@@ -588,8 +588,10 @@ def main():
                 manifests.append(manifest)
 
         # Apply CRDs before everything else
-        kubectl("apply", "-f", "-", stdin=yaml.safe_dump_all(crds))
-        kubectl("apply", "-f", "-", stdin=yaml.safe_dump_all(manifests))
+        if len(crds):
+            kubectl("apply", "-f", "-", stdin=yaml.safe_dump_all(crds))
+        if len(manifests):
+            kubectl("apply", "-f", "-", stdin=yaml.safe_dump_all(manifests))
 
     # Wait for the cluster to be healthy
     talosctl("health")

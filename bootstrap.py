@@ -593,6 +593,18 @@ def main():
         if len(manifests):
             kubectl("apply", "-f", "-", stdin=yaml.safe_dump_all(manifests))
 
+    # Gateway API flakiness: restart the Cilium operator and agents to pick up existing gateways,
+    # see https://docs.cilium.io/en/latest/network/servicemesh/gateway-api/gateway-api/#installation
+    if config["cluster"]["cilium"].get("gateway-api", {}).get("enabled"):
+        kubectl(
+            "--namespace",
+            "kube-system",
+            "rollout",
+            "restart",
+            "deployment/cilium-operator",
+            "daemonset/cilium",
+        )
+
     # Wait for the cluster to be healthy
     talosctl("health")
 

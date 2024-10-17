@@ -366,6 +366,8 @@ def main():
         "componentstatuses",
         "validatingadmissionpolicies.admissionregistration.k8s.io",
         "validatingadmissionpolicybindings.admissionregistration.k8s.io",
+        "nodes.metrics.k8s.io",
+        "pods.metrics.k8s.io",
     }
 
     # Discover non-namespaced and namespaced resource types from the API server

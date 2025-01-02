@@ -48,6 +48,9 @@ config_schema = Schema(
                     Optional("host-network"): bool,
                     Optional("privileged-ports"): bool,
                 },
+                Optional("bgp"): {
+                    "enabled": bool,
+                },
             },
             Optional("sops"): str_schema,
             Optional("flux"): {
@@ -482,6 +485,12 @@ def main():
         cilium_opts += [
             "policyAuditMode=true",  # Audit mode, do not block traffic
         ]
+
+    if bgp := config["cluster"]["cilium"].get("bgp"):
+        if bgp["enabled"]:
+            cilium_opts += [
+                "bgpControlPlane.enabled=true",  # Enable BGP Control Plane
+            ]
 
     # Normally Envoy has SYS_ADMIN, but that can be replaced with PERFMON and BPF, see
     # https://github.com/cilium/cilium/blob/v1.16.1/install/kubernetes/cilium/values.yaml#L2263-L2271

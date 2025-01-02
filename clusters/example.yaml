@@ -22,6 +22,8 @@ cluster:
       # (in the style of NodePort) without requiring a LoadBalancer service (optional)
       host-network: false
       privileged-ports: false # Allow Envoy to bind to ports <1024 when using Gateway API (optional)
+    bgp: # Configure Cilium BGP Control Plane support (optional)
+      enabled: true # Enable Cilium BGP Control Plane
   sops: my-cluster.example.com # GPG ID/fingerprint of Mozilla SOPS key (https://github.com/mozilla/sops) (optional)
   flux: # Configuration for Flux (GitOps) (optional)
     # Install specific (extra) Flux components, see https://fluxcd.io/flux/components/ for details

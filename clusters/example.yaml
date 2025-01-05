@@ -22,6 +22,10 @@ cluster:
       # (in the style of NodePort) without requiring a LoadBalancer service (optional)
       host-network: false
       privileged-ports: false # Allow Envoy to bind to ports <1024 when using Gateway API (optional)
+    native-routing: # Configure native routing support (optional)
+      enabled: true # Enable Cilium native routing datapath
+      ipv4-cidr: 10.244.0.0/16 # IPv4 CIDR used for native routing
+      direct-routes: true # Enable if you have L2 connectivity between all nodes
     bgp: # Configure Cilium BGP Control Plane support (optional)
       enabled: true # Enable Cilium BGP Control Plane
   sops: my-cluster.example.com # GPG ID/fingerprint of Mozilla SOPS key (https://github.com/mozilla/sops) (optional)

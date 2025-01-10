@@ -48,6 +48,11 @@ config_schema = Schema(
                     Optional("host-network"): bool,
                     Optional("privileged-ports"): bool,
                 },
+                Optional("native-routing"): {
+                    "enabled": bool,
+                    "ipv4-cidr": str_schema,
+                    "direct-routes": bool,
+                },
                 Optional("bgp"): {
                     "enabled": bool,
                 },
@@ -485,6 +490,14 @@ def main():
         cilium_opts += [
             "policyAuditMode=true",  # Audit mode, do not block traffic
         ]
+
+    if native_routing := config["cluster"]["cilium"].get("native-routing"):
+        if native_routing["enabled"]:
+            cilium_opts += [
+                "routingMode=native",  # Enable native routing
+                f"ipv4NativeRoutingCIDR={native_routing["ipv4-cidr"]}",
+                f"autoDirectNodeRoutes={'true' if native_routing["direct-routes"] else 'false'}",
+            ]
 
     if bgp := config["cluster"]["cilium"].get("bgp"):
         if bgp["enabled"]:

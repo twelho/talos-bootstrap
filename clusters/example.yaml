@@ -26,6 +26,10 @@ cluster:
       enabled: true # Enable Cilium native routing datapath
       ipv4-cidr: 10.244.0.0/16 # IPv4 CIDR used for native routing
       direct-routes: true # Enable if you have L2 connectivity between all nodes
+    # Enable Cilium netkit device mode instead of veth (optional)
+    # WARNING: REQUIRES kernel 6.8 or newer (Talos v1.9), cluster WILL BECOME INACCESSIBLE if enabled on older kernels!
+    # For details, see https://docs.cilium.io/en/latest/operations/performance/tuning/#netkit-device-mode
+    netkit: true
     bgp: # Configure Cilium BGP Control Plane support (optional)
       enabled: true # Enable Cilium BGP Control Plane
   sops: my-cluster.example.com # GPG ID/fingerprint of Mozilla SOPS key (https://github.com/mozilla/sops) (optional)

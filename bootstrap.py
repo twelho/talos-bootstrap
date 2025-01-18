@@ -53,6 +53,7 @@ config_schema = Schema(
                     "ipv4-cidr": str_schema,
                     "direct-routes": bool,
                 },
+                Optional("netkit"): bool,
                 Optional("bgp"): {
                     "enabled": bool,
                 },
@@ -423,7 +424,6 @@ def main():
         "ipam.mode=kubernetes",
         "kubeProxyReplacement=true",
         "bpf.masquerade=true",  # eBPF-based masquerading
-        # "bpf.datapathMode=netkit",  # netkit device mode, requires kernel 6.8 (not yet in Talos)
         "securityContext.capabilities.ciliumAgent={CHOWN,KILL,NET_ADMIN,NET_RAW,IPC_LOCK,"
         "SYS_ADMIN,SYS_RESOURCE,DAC_OVERRIDE,FOWNER,SETGID,SETUID}",
         "securityContext.capabilities.cleanCiliumState={NET_ADMIN,SYS_ADMIN,SYS_RESOURCE}",
@@ -498,6 +498,11 @@ def main():
                 f"ipv4NativeRoutingCIDR={native_routing["ipv4-cidr"]}",
                 f"autoDirectNodeRoutes={'true' if native_routing["direct-routes"] else 'false'}",
             ]
+
+    if config["cluster"]["cilium"].get("netkit"):
+        cilium_opts += [
+            "bpf.datapathMode=netkit",  # netkit device mode, REQUIRES kernel >= 6.8 (Talos v1.9)
+        ]
 
     if bgp := config["cluster"]["cilium"].get("bgp"):
         if bgp["enabled"]:

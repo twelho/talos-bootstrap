@@ -510,7 +510,11 @@ def main():
     envoy_caps = ["NET_ADMIN", "PERFMON", "BPF"]
     if gw_api := config["cluster"]["cilium"].get("gateway-api"):
         if gw_api["enabled"]:
-            cilium_opts += ["gatewayAPI.enabled=true"]
+            cilium_opts += [
+                "gatewayAPI.enabled=true",  # Enable Gateway API support
+                "gatewayAPI.enableAlpn=true",  # GRPCRoutes with TLS require ALPN for HTTP/2
+                "gatewayAPI.enableAppProtocol=true",  # GEP-1911: Backend Protocol Selection
+            ]
             if gw_api.get("host-network"):
                 cilium_opts += ["gatewayAPI.hostNetwork.enabled=true"]
             if gw_api.get("privileged-ports"):

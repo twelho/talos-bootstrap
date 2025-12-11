@@ -8,8 +8,8 @@ import os
 import shutil
 import socket
 import subprocess
-import time
 import sys
+import time
 
 import gnupg
 import yaml
@@ -74,7 +74,7 @@ config_schema = Schema(
             Optional("manifests"): dir_schema,
         },
         "controlplane": {
-            "record": str_schema,
+            "record": str,
             Optional("record-as-endpoint"): bool,
             Optional("patches"): patch_schema,
             "nodes": {str_schema: Or(patch_schema, None)},
@@ -495,8 +495,8 @@ def main():
         if native_routing["enabled"]:
             cilium_opts += [
                 "routingMode=native",  # Enable native routing
-                f"ipv4NativeRoutingCIDR={native_routing["ipv4-cidr"]}",
-                f"autoDirectNodeRoutes={'true' if native_routing["direct-routes"] else 'false'}",
+                f"ipv4NativeRoutingCIDR={native_routing['ipv4-cidr']}",
+                f"autoDirectNodeRoutes={'true' if native_routing['direct-routes'] else 'false'}",
             ]
 
     if config["cluster"]["cilium"].get("netkit"):

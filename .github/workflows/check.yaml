@@ -14,7 +14,7 @@ jobs:
       options: --user 1001 # https://github.com/actions/runner/issues/2033#issuecomment-1598547465
     steps:
       - name: Check out sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
@@ -36,11 +36,11 @@ jobs:
       checks: write
     steps:
       - name: Check out sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Install Python dependencies
         run: pip install black flake8
       - name: Run wearerequired/lint-action
-        uses: wearerequired/lint-action@v2
+        uses: wearerequired/lint-action@df31ae8635c46366688e0bea44d7aba2e1468813
         with:
           continue_on_error: false
           black: true

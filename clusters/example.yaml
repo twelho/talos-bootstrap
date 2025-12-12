@@ -56,7 +56,9 @@ cluster:
   manifests: manifests/my-cluster
 
 controlplane:
-  record: my-cluster-control-plane # The control plane IP or DNS record. The domain is appended to this to form a FQDN.
+  # The control plane IP or DNS record. The domain is appended to this to form a FQDN.
+  # May be an empty string if the cluster is directly addressable through the domain.
+  record: my-cluster-control-plane
   # Use the record above as the Talos API endpoint instead of the control plane node addresses, for remote clusters.
   # Do NOT use with Talos VIP, see https://www.talos.dev/latest/introduction/prodnotes/#load-balancing-the-talos-api
   record-as-endpoint: false # (optional)

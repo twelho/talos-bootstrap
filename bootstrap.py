@@ -215,8 +215,15 @@ def main():
     )
     args = parser.parse_args()
 
+    # Get absolute path of config before changing directory
+    config_path = os.path.abspath(args.config)
+    config_dir = os.path.dirname(config_path)
+
+    # Change to config directory so relative paths work
+    os.chdir(config_dir)
+
     # Load the bootstrap configuration
-    with open(args.config, "r") as file:
+    with open(config_path, "r") as file:
         config = yaml.safe_load(file)
 
     # Validate the bootstrap configuration

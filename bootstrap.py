@@ -15,15 +15,18 @@ import gnupg
 import yaml
 from schema import And, Optional, Or, Schema, SchemaError
 
-str_schema = And(str, And(len, error="empty strings not allowed"))
+str_schema = And(str, And(len, error="empty strings not allowed"))  # type: ignore
 file_schema = And(
-    str_schema, And(lambda x: os.path.isfile(x), error="file not found: {}")
+    str_schema,  # type: ignore
+    And(lambda x: os.path.isfile(x), error="file not found: {}"),  # type: ignore
 )
 dir_schema = And(
-    str_schema, And(lambda x: os.path.isdir(x), error="directory not found: {}")
+    str_schema,  # type: ignore
+    And(lambda x: os.path.isdir(x), error="directory not found: {}"),  # type: ignore
 )
 patch_schema = And(
-    [str], And(lambda x: len(x) == len(set(x)), error="duplicates not allowed: {}")
+    [str],  # type: ignore
+    And(lambda x: len(x) == len(set(x)), error="duplicates not allowed: {}"),  # type: ignore
 )
 
 # Schema for the bootstrap configuration files
@@ -77,11 +80,11 @@ config_schema = Schema(
             "record": str,
             Optional("record-as-endpoint"): bool,
             Optional("patches"): patch_schema,
-            "nodes": {str_schema: Or(patch_schema, None)},
+            "nodes": {str_schema: Or(patch_schema, None)},  # type: ignore
         },
         "worker": {
             Optional("patches"): patch_schema,
-            "nodes": Or({str_schema: Or(patch_schema, None)}, None),
+            "nodes": Or({str_schema: Or(patch_schema, None)}, None),  # type: ignore
         },
     }
 )
@@ -566,9 +569,9 @@ def main():
 
         # Inject it into the cluster
         # NOTE: kubectl is not idempotent: https://github.com/kubernetes/kubectl/issues/1421
-        check_resource("namespace/flux-system") or kubectl(
-            "create", "namespace", "flux-system"
-        )
+        if not check_resource("namespace/flux-system"):
+            kubectl("create", "namespace", "flux-system")
+
         kubectl(
             "create",
             "secret",

@@ -156,28 +156,6 @@ def wait_socket(host, port):
             time.sleep(1)
 
 
-# Utility for waiting for a node to reach a given stage
-def wait_stage(node, stage):
-    print(f'Waiting for {node} to reach stage "{stage}"...')
-    while True:
-        result = talosctl(
-            "get",
-            "machinestatus",
-            "--nodes",
-            node,
-            "-oyaml",
-            capture_stdout=True,
-            capture_stderr=True,
-            silent=True,
-            fatal=False,
-        )
-        if result.returncode == 0:
-            output = yaml.safe_load(result.stdout)
-            if output["spec"]["stage"] == stage:
-                break
-        time.sleep(1)
-
-
 # Utility for checking the existence of Kubernetes resources
 def check_resource(name, namespace=None):
     args = [
@@ -254,6 +232,28 @@ def main():
     def fqdn(*parts):
         return ".".join(filter(None, [*parts, config["cluster"]["domain"]]))
 
+    # Utility for waiting for a node to reach a given stage
+    def wait_stage(node, stage, insecure=False):
+        print(f'Waiting for {node} to reach stage "{stage}"...')
+        while True:
+            result = talosctl(
+                "get",
+                "machinestatus",
+                "--nodes",
+                args.bootstrap[node] if args.bootstrap.get(node) else fqdn(node),
+                "--insecure" if insecure else None,
+                "-oyaml",
+                capture_stdout=True,
+                capture_stderr=True,
+                silent=True,
+                fatal=False,
+            )
+            if result.returncode == 0:
+                output = yaml.safe_load(result.stdout)
+                if output["spec"]["stage"] == stage:
+                    break
+            time.sleep(1)
+
     # Apply a configuration file to a set of nodes including the given global patches
     def apply_configuration(node_set, configuration_file, global_patches):
         for node, node_patches in node_set.items():
@@ -296,12 +296,26 @@ def main():
         *[e for p in config["cluster"]["patches"] for e in ("--config-patch", p)],
     )
 
+    # Wait for control plane nodes if bootstrapping the cluster
+    for node in config["controlplane"]["nodes"].keys():
+        if node in args.bootstrap:
+            wait_stage(node, "maintenance", insecure=True)
+        else:
+            wait_stage(node, "running")
+
     # Apply cluster configuration to control plane nodes
     apply_configuration(
         config["controlplane"]["nodes"],
         "controlplane.yaml",
         config["controlplane"].get("patches", []),
     )
+
+    # Wait for worker nodes
+    for node in config["worker"]["nodes"].keys():
+        if node in args.bootstrap:
+            wait_stage(node, "maintenance", insecure=True)
+        else:
+            wait_stage(node, "running")
 
     # Apply cluster configuration to worker nodes
     apply_configuration(

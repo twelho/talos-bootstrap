@@ -348,7 +348,22 @@ def main():
         # has finished, but this hasn't been verified yet (installation goes too fast if the node
         # already has the images, which is the case during repeated testing)
         wait_stage(control_plane_nodes[0], "booting")
-        talosctl("bootstrap", "--nodes", control_plane_nodes[0])
+
+        # Bootstrapping may fail with, e.g., "FailedPrecondition desc = time is not in sync yet"
+        # while the nodes are still booting, so just try it repeatedly until it succeeds
+        silent = False
+        while True:
+            result = talosctl(
+                "bootstrap",
+                "--nodes",
+                control_plane_nodes[0],
+                capture_stderr=True,
+                silent=silent,
+                fatal=False,
+            )
+            if result.returncode == 0:
+                break
+            silent = True
 
     if len(args.bootstrap):
         to_reboot = [fqdn(node) for node in args.bootstrap.keys()]

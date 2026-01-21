@@ -388,8 +388,8 @@ def main():
     time.sleep(5)
     wait_socket(fqdn(config["controlplane"]["record"]), 6443)
 
-    # Generate and update kubeconfig
-    talosctl("kubeconfig", stdin="r\n")  # Always rename existing configs
+    # Generate and update kubeconfig, always overwrite to prevent stale contexts from accumulating
+    talosctl("kubeconfig", stdin="o\n")
 
     # Ensure proper kubeconfig permissions
     os.chmod(os.path.expanduser(os.getenv("KUBECONFIG", "~/.kube/config")), 0o600)

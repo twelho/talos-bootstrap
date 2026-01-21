@@ -62,7 +62,7 @@ If you want to create new secrets for a cluster, do the following:
 ## Authors
 
 - Dennis Marttinen ([@twelho](https://github.com/twelho))
-- Veeti Poutsalo ([@VeetiPoutsalo](https://github.com/veetipoutsalo))
+- Veeti Poutsalo ([@Polychoronix](https://github.com/Polychoronix))
 
 ## License
 

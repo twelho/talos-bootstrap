@@ -558,6 +558,7 @@ def main():
                 "gatewayAPI.enabled=true",  # Enable Gateway API support
                 "gatewayAPI.enableAlpn=true",  # GRPCRoutes with TLS require ALPN for HTTP/2
                 "gatewayAPI.enableAppProtocol=true",  # GEP-1911: Backend Protocol Selection
+                'gatewayAPI.gatewayClass.create="true"',  # Always create the default GatewayClass
             ]
             if gw_api.get("host-network"):
                 cilium_opts += ["gatewayAPI.hostNetwork.enabled=true"]

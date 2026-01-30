@@ -60,6 +60,9 @@ config_schema = Schema(
                 Optional("bgp"): {
                     "enabled": bool,
                 },
+                Optional("node-ipam"): {
+                    "enabled": bool,
+                },
             },
             Optional("sops"): str_schema,
             Optional("flux"): {
@@ -547,6 +550,12 @@ def main():
         if bgp["enabled"]:
             cilium_opts += [
                 "bgpControlPlane.enabled=true",  # Enable BGP Control Plane
+            ]
+
+    if node_ipam := config["cluster"]["cilium"].get("node-ipam"):
+        if node_ipam["enabled"]:
+            cilium_opts += [
+                "nodeIPAM.enabled=true",  # Use node IPs for LoadBalancer services
             ]
 
     # Normally Envoy has SYS_ADMIN, but that can be replaced with PERFMON and BPF, see

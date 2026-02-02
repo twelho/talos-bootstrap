@@ -1,0 +1,26 @@
+on:
+  pull_request_target: # https://github.com/wearerequired/lint-action/?tab=readme-ov-file#limitations
+  push:
+    branches:
+      - master
+
+name: Linting
+jobs:
+  lint:
+    name: Python
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@v6
+      - name: Install Python dependencies
+        run: pip install black flake8
+      - name: Run wearerequired/lint-action
+        uses: wearerequired/lint-action@df31ae8635c46366688e0bea44d7aba2e1468813
+        with:
+          continue_on_error: false
+          black: true
+          flake8: true
+          flake8_args: --max-line-length 100

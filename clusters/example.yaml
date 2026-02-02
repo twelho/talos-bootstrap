@@ -15,13 +15,15 @@ cluster:
       # otherwise NetworkPolicies will NOT BE ENFORCED!
       audit-mode: true
     gateway-api: # Configure Cilium Gateway API support (optional)
-      # Enable Gateway API support, note that the CRDs must still be installed separately according to
+      # Enable Gateway API support. CRDs will be installed automatically if enabled.
       # https://docs.cilium.io/en/latest/network/servicemesh/gateway-api/gateway-api/
+      # To customize GatewayClassConfig use the `manifests` field.
       enabled: false
       # Enable host network mode, this allows Envoy to bind directly to host ports
       # (in the style of NodePort) without requiring a LoadBalancer service (optional)
       host-network: false
       privileged-ports: false # Allow Envoy to bind to ports <1024 when using Gateway API (optional)
+    node-ipam: false # Enable https://docs.cilium.io/en/latest/network/node-ipam/ (optional)
     native-routing: # Configure native routing support (optional)
       enabled: true # Enable Cilium native routing datapath
       ipv4-cidr: 10.244.0.0/16 # IPv4 CIDR used for native routing

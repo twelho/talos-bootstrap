@@ -4,7 +4,9 @@
 # (c) Dennis Marttinen, Veeti Poutsalo 2022
 
 import argparse
+import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -12,6 +14,7 @@ import sys
 import time
 
 import gnupg
+import requests
 import yaml
 from schema import And, Optional, Or, Schema, SchemaError
 
@@ -58,6 +61,9 @@ config_schema = Schema(
                 },
                 Optional("netkit"): bool,
                 Optional("bgp"): {
+                    "enabled": bool,
+                },
+                Optional("node-ipam"): {
                     "enabled": bool,
                 },
             },
@@ -170,6 +176,45 @@ def check_resource(name, namespace=None):
         *args, capture_stdout=True, capture_stderr=True, silent=True, fatal=False
     )
     return result.returncode == 0
+
+
+def resolve_gateway_api_version():
+    """Resolve the Gateway API CRD version compatible with the Cilium Helm chart."""
+    # Get Cilium version from Helm
+    result = helm(
+        "search",
+        "repo",
+        "cilium/cilium",
+        "-o",
+        "json",
+        capture_stdout=True,
+        silent=True,
+    )
+    cilium_version = json.loads(result.stdout)[0]["version"]
+
+    # Fetch go.mod from Cilium repo
+    go_mod_url = (
+        f"https://raw.githubusercontent.com/cilium/cilium/v{cilium_version}/go.mod"
+    )
+    go_mod = requests.get(go_mod_url).text
+
+    # Parse gateway-api version
+    gw_version = re.search(r"sigs\.k8s\.io/gateway-api\s+(v[\d.]+)", go_mod).group(1)
+    # Extract major.minor (handle pseudo-versions like v1.3.1-0.20250611...)
+    major_minor = re.match(r"(v\d+\.\d+)", gw_version).group(1)
+
+    # Query Gateway API releases to find latest matching minor
+    releases_url = "https://api.github.com/repos/kubernetes-sigs/gateway-api/releases"
+    releases = requests.get(releases_url).json()
+
+    try:
+        return next(
+            rel["tag_name"]
+            for rel in releases
+            if rel["tag_name"].startswith(major_minor) and "rc" not in rel["tag_name"]
+        )
+    except StopIteration:
+        raise Exception(f"Could not find Gateway API release for {major_minor}")
 
 
 def main():
@@ -549,6 +594,12 @@ def main():
                 "bgpControlPlane.enabled=true",  # Enable BGP Control Plane
             ]
 
+    if node_ipam := config["cluster"]["cilium"].get("node-ipam"):
+        if node_ipam["enabled"]:
+            cilium_opts += [
+                "nodeIPAM.enabled=true",  # Use node IPs for LoadBalancer services
+            ]
+
     # Normally Envoy has SYS_ADMIN, but that can be replaced with PERFMON and BPF, see
     # https://github.com/cilium/cilium/blob/v1.16.1/install/kubernetes/cilium/values.yaml#L2263-L2271
     envoy_caps = ["NET_ADMIN", "PERFMON", "BPF"]
@@ -575,6 +626,24 @@ def main():
     # Add Helm repo for Cilium
     helm("repo", "add", "cilium", "https://helm.cilium.io/")
 
+    # Install Gateway API CRDs if gateway-api is enabled
+    if config["cluster"]["cilium"].get("gateway-api", {}).get("enabled"):
+        gw_api_version = resolve_gateway_api_version()
+        print(f"Installing Gateway API CRDs {gw_api_version}...")
+        # Use experimental-install to include TLSRoute CRD.
+        # Cilium has bug where if TLSRoute CRD is missing `enqueueRequestForBackendService` fails
+        # and it registers no reconciliation actions for HTTPRoutes due to code not handling
+        # missing CRD schema.
+        # https://github.com/cilium/cilium/blob/v1.18.6/operator/pkg/gateway-api/gateway.go#L270-L275
+        # This was partially fixed in https://github.com/cilium/cilium/pull/38874 but not fully.
+        # TODO: Send an upstream Cilium patch.
+        kubectl(
+            "apply",
+            "-f",
+            "https://github.com/kubernetes-sigs/gateway-api/releases/download/"
+            f"{gw_api_version}/experimental-install.yaml",
+        )
+
     # Install Cilium using Helm
     helm(
         "upgrade",
@@ -586,6 +655,13 @@ def main():
         "--wait",
         *[e for o in cilium_opts for e in ("--set", o)],
     )
+
+    # Cilium operator installs CRDs during runtime. Wait for the CRDs to be installed so that
+    # manifests can use them.
+    if config["cluster"]["cilium"].get("gateway-api", {}).get("enabled"):
+        print("Waiting for Cilium Gateway API CRDs...")
+        while not check_resource("crd/ciliumgatewayclassconfigs.cilium.io"):
+            time.sleep(1)
 
     # Add Mozilla SOPS key
     if "sops" in config["cluster"] and not check_resource(

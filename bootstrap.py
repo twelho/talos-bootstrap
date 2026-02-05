@@ -639,6 +639,7 @@ def main():
         # TODO: Send an upstream Cilium patch.
         kubectl(
             "apply",
+            "--server-side",
             "-f",
             "https://github.com/kubernetes-sigs/gateway-api/releases/download/"
             f"{gw_api_version}/experimental-install.yaml",

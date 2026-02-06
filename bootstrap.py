@@ -740,9 +740,11 @@ def main():
 
         # Apply CRDs before everything else
         if len(crds):
-            kubectl("apply", "-f", "-", stdin=yaml.safe_dump_all(crds))
+            kubectl("apply", "--server-side", "-f", "-", stdin=yaml.safe_dump_all(crds))
         if len(manifests):
-            kubectl("apply", "-f", "-", stdin=yaml.safe_dump_all(manifests))
+            kubectl(
+                "apply", "--server-side", "-f", "-", stdin=yaml.safe_dump_all(manifests)
+            )
 
     # Gateway API flakiness: restart the Cilium operator and agents to pick up existing gateways,
     # see https://docs.cilium.io/en/latest/network/servicemesh/gateway-api/gateway-api/#installation

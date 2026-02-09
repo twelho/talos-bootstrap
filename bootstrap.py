@@ -85,10 +85,12 @@ config_schema = Schema(
         "controlplane": {
             "record": str,
             Optional("record-as-endpoint"): bool,
+            Optional("add-node-san"): bool,
             Optional("patches"): patch_schema,
             "nodes": {str_schema: Or(patch_schema, None)},  # type: ignore
         },
         "worker": {
+            Optional("add-node-san"): bool,
             Optional("patches"): patch_schema,
             "nodes": Or({str_schema: Or(patch_schema, None)}, None),  # type: ignore
         },
@@ -300,7 +302,7 @@ def main():
             time.sleep(1)
 
     # Apply a configuration file to a set of nodes including the given global patches
-    def apply_configuration(node_set, configuration_file, global_patches):
+    def apply_configuration(node_set, configuration_file, global_patches, add_node_san):
         for node, node_patches in node_set.items():
             talosctl(
                 "apply-config",
@@ -318,6 +320,11 @@ def main():
                     for p in [*global_patches, *(node_patches or [])]
                     for e in ("--config-patch", p)
                 ],
+                *[
+                    "--config-patch",
+                    #f"[{{'op': 'add', 'path': '/machine/certSANs', 'value': '{node}'}}]"
+                    f"{{\"machine\": {{\"certSANs\": [\"{node}\"]}}}}"
+                ] if add_node_san else []
             )
 
     # Parse the custom installation image if specified
@@ -353,6 +360,7 @@ def main():
         config["controlplane"]["nodes"],
         "controlplane.yaml",
         config["controlplane"].get("patches", []),
+        config["controlplane"].get("add-node-san")
     )
 
     # Wait for worker nodes
@@ -367,6 +375,7 @@ def main():
         config["worker"]["nodes"],
         "worker.yaml",
         config["worker"].get("patches", []),
+        config["worker"].get("add-node-san")
     )
 
     # Form a list of the FQDNs/endpoints for control plane and worker nodes

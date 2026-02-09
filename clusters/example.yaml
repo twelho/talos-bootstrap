@@ -65,6 +65,7 @@ controlplane:
   # Use the record above as the Talos API endpoint instead of the control plane node addresses, for remote clusters.
   # Do NOT use with Talos VIP, see https://www.talos.dev/latest/introduction/prodnotes/#load-balancing-the-talos-api
   record-as-endpoint: false # (optional)
+  add-node-san: false # Include node name in certSANs (optional)
   patches: # Patches to apply to all control plane nodes (optional)
     - "@patch/example.yaml"
   nodes: # Addresses of the control plane nodes. DNS names are recommended, but static IPs should work as well.
@@ -74,6 +75,7 @@ controlplane:
     talos-master-3:
 
 worker:
+  add-node-san: false # Include node name in certSANs (optional)
   patches: # Patches to apply to all worker nodes (optional)
     - "@patch/example.yaml"
   nodes: # Addresses of the worker nodes. DNS names are recommended, but static IPs should work as well. (optional)

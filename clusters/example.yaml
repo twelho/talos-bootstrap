@@ -23,7 +23,8 @@ cluster:
       # (in the style of NodePort) without requiring a LoadBalancer service (optional)
       host-network: false
       privileged-ports: false # Allow Envoy to bind to ports <1024 when using Gateway API (optional)
-    node-ipam: false # Enable https://docs.cilium.io/en/latest/network/node-ipam/ (optional)
+    node-ipam: # Cilium Node IPAM LoadBalancer configuration (optional)
+      enabled: false # Enable https://docs.cilium.io/en/latest/network/node-ipam/ (optional)
     native-routing: # Configure native routing support (optional)
       enabled: true # Enable Cilium native routing datapath
       ipv4-cidr: 10.244.0.0/16 # IPv4 CIDR used for native routing

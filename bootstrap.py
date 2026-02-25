@@ -51,7 +51,10 @@ config_schema = Schema(
                 },
                 Optional("gateway-api"): {
                     "enabled": bool,
-                    Optional("host-network"): bool,
+                    Optional("host-network"): {
+                        "enabled": bool,
+                        Optional("matchLabels"): {str_schema: str}
+                    },
                     Optional("privileged-ports"): bool,
                 },
                 Optional("native-routing"): {
@@ -610,8 +613,11 @@ def main():
                 "gatewayAPI.enableAlpn=true",  # GRPCRoutes with TLS require ALPN for HTTP/2
                 "gatewayAPI.enableAppProtocol=true",  # GEP-1911: Backend Protocol Selection
             ]
-            if gw_api.get("host-network"):
-                cilium_opts += ["gatewayAPI.hostNetwork.enabled=true"]
+            if host_network := gw_api.get("host-network"):
+                if host_network["enabled"]:
+                    cilium_opts += ["gatewayAPI.hostNetwork.enabled=true"]
+                    if matchLabels := host_network["matchLabels"]:
+                        cilium_opts += [f"gatewayAPI.hostNetwork.matchLabels.'{label}'='{value or ''}'" for label, value in matchLabels.items()]
             if gw_api.get("privileged-ports"):
                 # https://docs.cilium.io/en/stable/network/servicemesh/gateway-api/gateway-api/#bind-to-privileged-port
                 cilium_opts += [

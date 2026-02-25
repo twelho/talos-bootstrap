@@ -19,9 +19,13 @@ cluster:
       # https://docs.cilium.io/en/latest/network/servicemesh/gateway-api/gateway-api/
       # To customize GatewayClassConfig use the `manifests` field.
       enabled: false
-      # Enable host network mode, this allows Envoy to bind directly to host ports
+      # Host network mode, this allows Envoy to bind directly to host ports
       # (in the style of NodePort) without requiring a LoadBalancer service (optional)
-      host-network: false
+      host-network:
+        enabled: false # Enable host network mode (optional)
+        matchLabels: # Specify the labels of the nodes where the Ingress listeners should be exposed (optional)
+          role: infra
+          component: gateway-api
       privileged-ports: false # Allow Envoy to bind to ports <1024 when using Gateway API (optional)
     node-ipam: # Cilium Node IPAM LoadBalancer configuration (optional)
       enabled: false # Enable https://docs.cilium.io/en/latest/network/node-ipam/ (optional)

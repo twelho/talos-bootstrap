@@ -39,6 +39,8 @@ cluster:
     netkit: true
     bgp: # Configure Cilium BGP Control Plane support (optional)
       enabled: true # Enable Cilium BGP Control Plane
+    masquerade:
+      enabled: true # Set to false to disable IPv4 masquerading (optional)
   sops: my-cluster.example.com # GPG ID/fingerprint of Mozilla SOPS key (https://github.com/mozilla/sops) (optional)
   flux: # Configuration for Flux (GitOps) (optional)
     # Install specific (extra) Flux components, see https://fluxcd.io/flux/components/ for details

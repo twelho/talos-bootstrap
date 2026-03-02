@@ -69,6 +69,9 @@ config_schema = Schema(
                 Optional("node-ipam"): {
                     "enabled": bool,
                 },
+                Optional("masquerade"): {
+                    "enabled": bool,
+                },
             },
             Optional("sops"): str_schema,
             Optional("flux"): {
@@ -601,6 +604,13 @@ def main():
         if node_ipam["enabled"]:
             cilium_opts += [
                 "nodeIPAM.enabled=true",  # Use node IPs for LoadBalancer services
+            ]
+
+    if masquerade := config["cluster"]["cilium"].get("masquerade"):
+        if not masquerade["enabled"]:
+            cilium_opts += [
+                "bpf.masquerade=false",
+                "enableIPv4Masquerade=false",  # Disable masquerading of IPv4 traffic leaving the node
             ]
 
     # Normally Envoy has SYS_ADMIN, but that can be replaced with PERFMON and BPF, see

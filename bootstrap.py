@@ -304,6 +304,11 @@ def main():
         for node, node_patches in node_set.items():
             talosctl(
                 "apply-config",
+                *(
+                    ["--endpoints", args.bootstrap[node]]
+                    if node in args.bootstrap
+                    else []
+                ),
                 "--nodes",
                 args.bootstrap[node] if args.bootstrap.get(node) else fqdn(node),
                 "--file",

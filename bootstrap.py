@@ -530,6 +530,38 @@ def main():
         "operator.rollOutPods=true",
     ]
 
+    capabilities = {
+        "ciliumAgent": [
+            "CHOWN",
+            "KILL",
+            "NET_ADMIN",
+            "NET_RAW",
+            "IPC_LOCK",
+            # "SYS_MODULE", # Must be disabled on Talos
+            "SYS_ADMIN",
+            "SYS_RESOURCE",
+            "DAC_OVERRIDE",
+            "FOWNER",
+            "SETGID",
+            "SETUID",
+            "SYSLOG",
+        ],
+        "cleanCiliumState": [
+            "NET_ADMIN",
+            # "SYS_MODULE", # Must be disabled on Talos
+            "SYS_ADMIN",
+            "SYS_RESOURCE",
+        ],
+    }
+
+    # Normally Envoy has SYS_ADMIN, but that can be replaced with PERFMON and BPF, see
+    # https://github.com/cilium/cilium/blob/v1.16.1/install/kubernetes/cilium/values.yaml#L2263-L2271
+    envoy_capabilities = [
+        "NET_ADMIN",
+        "PERFMON",
+        "BPF",
+    ]  # Default: ["NET_ADMIN","SYS_ADMIN"]
+
     # Cilium deploys its operator with 2 replicas by default, which may impede it becoming ready in
     # certain cluster configurations. Do a best-effort guess whether we should limit the replicas to
     # one: either there is just one worker node, or if there are no worker nodes the user likely has
@@ -598,6 +630,9 @@ def main():
             cilium_opts += [
                 "bgpControlPlane.enabled=true",  # Enable BGP Control Plane
             ]
+            capabilities["ciliumAgent"] += [
+                "NET_BIND_SERVICE"
+            ]  # Allow binding to BGP port (179)
 
     if node_ipam := config["cluster"]["cilium"].get("node-ipam"):
         if node_ipam["enabled"]:
@@ -605,9 +640,6 @@ def main():
                 "nodeIPAM.enabled=true",  # Use node IPs for LoadBalancer services
             ]
 
-    # Normally Envoy has SYS_ADMIN, but that can be replaced with PERFMON and BPF, see
-    # https://github.com/cilium/cilium/blob/v1.16.1/install/kubernetes/cilium/values.yaml#L2263-L2271
-    envoy_caps = ["NET_ADMIN", "PERFMON", "BPF"]
     if gw_api := config["cluster"]["cilium"].get("gateway-api"):
         if gw_api["enabled"]:
             cilium_opts += [
@@ -622,10 +654,15 @@ def main():
                 cilium_opts += [
                     "envoy.securityContext.capabilities.keepCapNetBindService=true"
                 ]
-                envoy_caps += ["NET_BIND_SERVICE"]
+                envoy_capabilities += ["NET_BIND_SERVICE"]
 
     cilium_opts += [
-        f"envoy.securityContext.capabilities.envoy={{{','.join(envoy_caps)}}}"
+        *[
+            f"securityContext.capabilities.{k}={{{','.join(caps)}}}"
+            for k, caps in capabilities.items()
+        ],
+        # Envoy is a special little snowflake with a prefix, so the above isn't enough
+        f"envoy.securityContext.capabilities.envoy={{{','.join(envoy_capabilities)}}}",
     ]
 
     # Add Helm repo for Cilium

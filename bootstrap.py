@@ -285,11 +285,7 @@ def main():
                 "get",
                 "machinestatus",
                 "--nodes",
-                (
-                    args.bootstrap[node]
-                    if args.bootstrap.get(node) and insecure
-                    else fqdn(node)
-                ),
+                node,
                 "--insecure" if insecure else None,
                 "-oyaml",
                 capture_stdout=True,
@@ -353,9 +349,9 @@ def main():
     # Wait for control plane nodes if bootstrapping the cluster
     for node in config["controlplane"]["nodes"].keys():
         if node in args.bootstrap:
-            wait_stage(node, "maintenance", insecure=True)
+            wait_stage(args.bootstrap[node], "maintenance", insecure=True)
         else:
-            wait_stage(node, "running")
+            wait_stage(fqdn(node), "running")
 
     # Apply cluster configuration to control plane nodes
     apply_configuration(
@@ -367,9 +363,9 @@ def main():
     # Wait for worker nodes
     for node in config["worker"]["nodes"].keys():
         if node in args.bootstrap:
-            wait_stage(node, "maintenance", insecure=True)
+            wait_stage(args.bootstrap[node], "maintenance", insecure=True)
         else:
-            wait_stage(node, "running")
+            wait_stage(fqdn(node), "running")
 
     # Apply cluster configuration to worker nodes
     apply_configuration(

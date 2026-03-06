@@ -285,7 +285,11 @@ def main():
                 "get",
                 "machinestatus",
                 "--nodes",
-                args.bootstrap[node] if args.bootstrap.get(node) else fqdn(node),
+                (
+                    args.bootstrap[node]
+                    if args.bootstrap.get(node) and insecure
+                    else fqdn(node)
+                ),
                 "--insecure" if insecure else None,
                 "-oyaml",
                 capture_stdout=True,

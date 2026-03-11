@@ -76,6 +76,7 @@ config_schema = Schema(
                 Optional("components"): str_schema,
                 Optional("components-extra"): str_schema,
                 Optional("all-namespaces"): bool,
+                Optional("network-policy"): bool,
                 Optional("ssh"): {
                     "url": str_schema,
                     "branch": str_schema,
@@ -773,6 +774,10 @@ def main():
             or config["cluster"]["flux"]["all-namespaces"]
         )
         flux_opts += [f"--watch-all-namespaces={'true' if all_namespaces else 'false'}"]
+
+        # Enable/disable network policy installation
+        enable_netpol = config["cluster"]["flux"].get("network-policy", True)
+        flux_opts += [f"--network-policy={'true' if enable_netpol else 'false'}"]
 
         # Perform bootstrap/installation
         flux(*flux_opts)

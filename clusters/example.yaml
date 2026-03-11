@@ -44,6 +44,7 @@ cluster:
     components: source-controller,kustomize-controller # (optional)
     components-extra: image-reflector-controller,image-automation-controller # (optional)
     all-namespaces: true # Set to "false" to make Flux only watch the installation namespace (optional)
+    network-policy: true # Set to "false" to disable Flux network policy installation (optional)
     ssh: # Bootstrap Flux in SSH mode, otherwise, install without configuration (optional)
       url: ssh://git@server.home/my-cluster/flux # The source repository and path for Flux to track
       branch: master # The branch in the repository for Flux to track

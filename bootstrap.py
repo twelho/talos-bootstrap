@@ -59,12 +59,16 @@ config_schema = Schema(
                     "ipv4-cidr": str_schema,
                     "direct-routes": bool,
                 },
+                Optional("node-ipam"): {
+                    "enabled": bool,
+                },
                 Optional("netkit"): bool,
                 Optional("bgp"): {
                     "enabled": bool,
                 },
-                Optional("node-ipam"): {
+                Optional("masquerade"): {
                     "enabled": bool,
+                    Optional("bpf"): bool,
                 },
             },
             Optional("sops"): str_schema,
@@ -512,7 +516,6 @@ def main():
     cilium_opts = [
         "ipam.mode=kubernetes",
         "kubeProxyReplacement=true",
-        "bpf.masquerade=true",  # eBPF-based masquerading
         "cgroup.autoMount.enabled=false",
         "cgroup.hostRoot=/sys/fs/cgroup",
         # Handled by KubePrism
@@ -630,6 +633,19 @@ def main():
             capabilities["ciliumAgent"] += [
                 "NET_BIND_SERVICE"
             ]  # Allow binding to BGP port (179)
+
+    if masquerade := config["cluster"]["cilium"].get("masquerade"):
+        if masquerade["enabled"]:
+            cilium_opts += [
+                # eBPF-based masquerading
+                f"bpf.masquerade={'true' if masquerade.get('bpf', True) else 'false'}",
+            ]
+        else:
+            cilium_opts += [
+                "bpf.masquerade=false",  # eBPF-based masquerading needs to be disabled
+                "enableIPv4Masquerade=false",
+                "enableIPv6Masquerade=false",
+            ]
 
     if node_ipam := config["cluster"]["cilium"].get("node-ipam"):
         if node_ipam["enabled"]:

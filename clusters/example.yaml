@@ -38,7 +38,9 @@ cluster:
     masquerade: # Cilium masquerading configuration (optional)
       enabled: true # Enable masquerading (default)
       bpf: true # Use BPF for masquerading (default) (optional)
-  sops: my-cluster.example.com # GPG ID/fingerprint of Mozilla SOPS key (https://github.com/mozilla/sops) (optional)
+  sops: # Configure SOPS support (https://github.com/mozilla/sops) (optional)
+    gpg: my-cluster.example.com # GPG ID/fingerprint of Mozilla SOPS key (optional)
+    age: secrets/my-cluster/key.age # Mozilla SOPS age private key (optional)
   flux: # Configuration for Flux (GitOps) (optional)
     # Install specific (extra) Flux components, see https://fluxcd.io/flux/components/ for details
     components: source-controller,kustomize-controller # (optional)

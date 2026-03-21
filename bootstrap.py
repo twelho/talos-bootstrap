@@ -293,8 +293,13 @@ def main():
             result = talosctl(
                 "get",
                 "machinestatus",
+                *(
+                    ["--endpoints", args.bootstrap[node]]
+                    if node in args.bootstrap
+                    else []
+                ),
                 "--nodes",
-                node,
+                args.bootstrap.get(node, fqdn(node)),
                 "--insecure" if insecure else None,
                 "-oyaml",
                 capture_stdout=True,
@@ -319,7 +324,7 @@ def main():
                     else []
                 ),
                 "--nodes",
-                args.bootstrap[node] if args.bootstrap.get(node) else fqdn(node),
+                args.bootstrap.get(node, fqdn(node)),
                 "--file",
                 configuration_file,
                 *[
@@ -355,34 +360,6 @@ def main():
         *[e for p in config["cluster"]["patches"] for e in ("--config-patch", p)],
     )
 
-    # Wait for control plane nodes if bootstrapping the cluster
-    for node in config["controlplane"]["nodes"].keys():
-        if node in args.bootstrap:
-            wait_stage(args.bootstrap[node], "maintenance", insecure=True)
-        else:
-            wait_stage(fqdn(node), "running")
-
-    # Apply cluster configuration to control plane nodes
-    apply_configuration(
-        config["controlplane"]["nodes"],
-        "controlplane.yaml",
-        config["controlplane"].get("patches", []),
-    )
-
-    # Wait for worker nodes
-    for node in config["worker"]["nodes"].keys():
-        if node in args.bootstrap:
-            wait_stage(args.bootstrap[node], "maintenance", insecure=True)
-        else:
-            wait_stage(fqdn(node), "running")
-
-    # Apply cluster configuration to worker nodes
-    apply_configuration(
-        config["worker"]["nodes"],
-        "worker.yaml",
-        config["worker"].get("patches", []),
-    )
-
     # Form a list of the FQDNs/endpoints for control plane and worker nodes
     control_plane_nodes = [fqdn(n) for n in config["controlplane"]["nodes"].keys()]
     worker_nodes = [fqdn(n) for n in config["worker"]["nodes"].keys()]
@@ -400,6 +377,34 @@ def main():
 
     # Ensure proper talosconfig permissions
     os.chmod(os.path.expanduser("~/.talos/config"), 0o600)
+
+    # Wait for control plane nodes if bootstrapping the cluster
+    for node in config["controlplane"]["nodes"].keys():
+        if node in args.bootstrap:
+            wait_stage(node, "maintenance", insecure=True)
+        else:
+            wait_stage(node, "running")
+
+    # Apply cluster configuration to control plane nodes
+    apply_configuration(
+        config["controlplane"]["nodes"],
+        "controlplane.yaml",
+        config["controlplane"].get("patches", []),
+    )
+
+    # Wait for worker nodes
+    for node in config["worker"]["nodes"].keys():
+        if node in args.bootstrap:
+            wait_stage(node, "maintenance", insecure=True)
+        else:
+            wait_stage(node, "running")
+
+    # Apply cluster configuration to worker nodes
+    apply_configuration(
+        config["worker"]["nodes"],
+        "worker.yaml",
+        config["worker"].get("patches", []),
+    )
 
     # Bootstrap the cluster if all nodes are marked to be bootstrapped
     if args.bootstrap.keys() == all_nodes:
@@ -425,7 +430,7 @@ def main():
             silent = True
 
     if len(args.bootstrap):
-        to_reboot = [fqdn(node) for node in args.bootstrap.keys()]
+        to_reboot = args.bootstrap.keys()
         for node in set(to_reboot) & set(control_plane_nodes):
             wait_stage(
                 node, "running"

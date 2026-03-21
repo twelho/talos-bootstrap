@@ -84,6 +84,7 @@ config_schema = Schema(
                     "url": str_schema,
                     "branch": str_schema,
                     "key": file_schema,
+                    Optional("path"): str_schema,
                 },
             },
             Optional("image"): str_schema,
@@ -766,13 +767,19 @@ def main():
         flux_opts = []
         if "ssh" in config["cluster"]["flux"]:
             # SSH configuration given, bootstrap flux
+            custom_path = config["cluster"]["flux"]["ssh"].get("path", False)
+
             flux_opts += [
                 "bootstrap",
                 "git",
-                f"--url={config['cluster']['flux']['url']}",
-                f"--branch={config['cluster']['flux']['branch']}",
-                f"--path=clusters/{config['cluster']['name']}",
-                f"--private-key-file={config['cluster']['flux']['key']}",
+                f"--url={config['cluster']['flux']['ssh']['url']}",
+                f"--branch={config['cluster']['flux']['ssh']['branch']}",
+                f"--private-key-file={config['cluster']['flux']['ssh']['key']}",
+                f"--path={
+                    f'{config['cluster']['flux']['ssh']['path']}'
+                    if custom_path
+                    else f'clusters/{config['cluster']['name']}'
+                }",
             ]
         else:
             # No SSH configuration given, just perform a Flux install

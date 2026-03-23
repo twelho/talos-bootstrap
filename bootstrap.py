@@ -71,7 +71,10 @@ config_schema = Schema(
                     Optional("bpf"): bool,
                 },
             },
-            Optional("sops"): str_schema,
+            Optional("sops"): {
+                Optional("gpg"): str_schema,
+                Optional("age"): str_schema,
+            },
             Optional("flux"): {
                 Optional("components"): str_schema,
                 Optional("components-extra"): str_schema,
@@ -721,28 +724,43 @@ def main():
             time.sleep(1)
 
     # Add Mozilla SOPS key
-    if "sops" in config["cluster"] and not check_resource(
-        "secret/sops-gpg", namespace="flux-system"
-    ):
-        # Fetch secret key from GPG
-        key_data = gnupg.GPG().export_keys(
-            config["cluster"]["sops"], secret=True, expect_passphrase=False
-        )
+    if "sops" in config["cluster"]:
+        if "gpg" in config["cluster"]["sops"] and not check_resource(
+            "secret/sops-gpg", namespace="flux-system"
+        ):
+            # Fetch secret key from GPG
+            key_data = gnupg.GPG().export_keys(
+                config["cluster"]["sops"]["gpg"], secret=True, expect_passphrase=False
+            )
 
-        # Inject it into the cluster
-        # NOTE: kubectl is not idempotent: https://github.com/kubernetes/kubectl/issues/1421
-        if not check_resource("namespace/flux-system"):
-            kubectl("create", "namespace", "flux-system")
+            # Inject it into the cluster
+            # NOTE: kubectl is not idempotent: https://github.com/kubernetes/kubectl/issues/1421
+            if not check_resource("namespace/flux-system"):
+                _ = kubectl("create", "namespace", "flux-system")
 
-        kubectl(
-            "create",
-            "secret",
-            "generic",
-            "sops-gpg",
-            "--namespace=flux-system",
-            "--from-file=sops.asc=/dev/stdin",
-            stdin=key_data,
-        )
+            _ = kubectl(
+                "create",
+                "secret",
+                "generic",
+                "sops-gpg",
+                "--namespace=flux-system",
+                "--from-file=sops.asc=/dev/stdin",
+                stdin=key_data,
+            )
+        if "age" in config["cluster"]["sops"] and not check_resource(
+            "secret/sops-age", namespace="flux-system"
+        ):
+            if not check_resource("namespace/flux-system"):
+                _ = kubectl("create", "namespace", "flux-system")
+
+            _ = kubectl(
+                "create",
+                "secret",
+                "generic",
+                "sops-age",
+                "--namespace=flux-system",
+                f"--from-file=age.agekey=${config['cluster']['sops']['age']}",
+            )
 
     if "flux" in config["cluster"]:
         flux_opts = []

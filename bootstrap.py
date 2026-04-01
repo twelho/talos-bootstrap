@@ -704,6 +704,7 @@ def main():
         # TODO: Send an upstream Cilium patch.
         kubectl(
             "apply",
+            "--force-conflicts",
             "--server-side",
             "-f",
             "https://github.com/kubernetes-sigs/gateway-api/releases/download/"
@@ -817,7 +818,11 @@ def main():
         manifests, crds = [], []
         for manifest in yaml.safe_load_all(
             kubectl(
-                "kustomize", "--enable-helm", manifest_dir, capture_stdout=True
+                "kustomize",
+                "--enable-alpha-plugins",
+                "--enable-helm",
+                manifest_dir,
+                capture_stdout=True,
             ).stdout
         ):
             if (
@@ -830,10 +835,22 @@ def main():
 
         # Apply CRDs before everything else
         if len(crds):
-            kubectl("apply", "--server-side", "-f", "-", stdin=yaml.safe_dump_all(crds))
+            kubectl(
+                "apply",
+                "--force-conflicts",
+                "--server-side",
+                "-f",
+                "-",
+                stdin=yaml.safe_dump_all(crds),
+            )
         if len(manifests):
             kubectl(
-                "apply", "--server-side", "-f", "-", stdin=yaml.safe_dump_all(manifests)
+                "apply",
+                "--force-conflicts",
+                "--server-side",
+                "-f",
+                "-",
+                stdin=yaml.safe_dump_all(manifests),
             )
 
     # Gateway API flakiness: restart the Cilium operator and agents to pick up existing gateways,

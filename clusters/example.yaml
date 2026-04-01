@@ -63,7 +63,9 @@ cluster:
     # or loaded from a file by prefixing a path relative to the repository root with an @ character.
     - '[{"op": "add", "path": "/machine/network/hostname", "value": "worker1"}]'
     - "@patch/example.yaml"
-  # Kustomization directory for additional manifests to be applied into the cluster (optional)
+  # Kustomization directory for additional manifests to be applied into the cluster before CNI, but after CNI CRDs (optional)
+  manifests-pre: manifests/my-cluster-pre # Especially useful for network policies with hardened Cilium not in audit mode
+  # Kustomization directory for additional manifests to be applied into the cluster after bootstrapping (optional)
   manifests: manifests/my-cluster
 
 controlplane:

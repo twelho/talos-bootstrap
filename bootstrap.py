@@ -89,6 +89,7 @@ config_schema = Schema(
             },
             Optional("image"): str_schema,
             Optional("patches"): patch_schema,
+            Optional("manifests-pre"): dir_schema,
             Optional("manifests"): dir_schema,
         },
         "controlplane": {
@@ -105,8 +106,9 @@ config_schema = Schema(
 )
 
 
-# Key-value input parser for argparse, with optional values
 class KeyValueAction(argparse.Action):
+    """Key-value input parser for argparse, with optional values"""
+
     def __call__(self, _, namespace, values, option_string=None):
         current_kv = getattr(namespace, self.dest) or {}
         pairs = [pair.split("=", 1) + [None] for pair in values.split(",")]
@@ -123,8 +125,8 @@ class KeyValueAction(argparse.Action):
         setattr(namespace, self.dest, current_kv)
 
 
-# Convenience wrapper for executing external binaries
 def command(name):
+    """Convenience wrapper for executing external binaries"""
     binary = shutil.which(name)
     if not binary:
         raise Exception(f"{name} not found in PATH or not executable")
@@ -171,8 +173,8 @@ def wait_socket(host, port):
             time.sleep(1)
 
 
-# Utility for checking the existence of Kubernetes resources
 def check_resource(name, namespace=None):
+    """Utility for checking the existence of Kubernetes resources"""
     args = [
         "get",
         "-oname",
@@ -224,6 +226,63 @@ def resolve_gateway_api_version():
         )
     except StopIteration:
         raise Exception(f"Could not find Gateway API release for {major_minor}")
+
+
+def apply_manifests(manifest_dir):
+    """Kustomize and apply CRDs and manifests from the given directory"""
+    manifests, crds = [], []
+    for manifest in yaml.safe_load_all(
+        kubectl(
+            "kustomize",
+            "--enable-alpha-plugins",
+            "--enable-helm",
+            manifest_dir,
+            capture_stdout=True,
+        ).stdout
+    ):
+        if (
+            manifest.get("apiVersion") == "apiextensions.k8s.io/v1"
+            and manifest.get("kind") == "CustomResourceDefinition"
+        ):
+            crds.append(manifest)
+        else:
+            manifests.append(manifest)
+
+    # Apply CRDs before everything else
+    if len(crds):
+        kubectl(
+            "apply",
+            "--force-conflicts",
+            "--server-side",
+            "-f",
+            "-",
+            stdin=yaml.safe_dump_all(crds),
+        )
+    if len(manifests):
+        kubectl(
+            "apply",
+            "--force-conflicts",
+            "--server-side",
+            "-f",
+            "-",
+            stdin=yaml.safe_dump_all(manifests),
+        )
+
+
+def install_cilium(opts, agent=True):
+    """Install Cilium using Helm. If agent=True, deploys the
+    Cilium node agent DaemonSet in addition to the operator."""
+    cilium_opts = opts + [f"agent={'true' if agent else 'false'}"]
+    helm(
+        "upgrade",
+        "--install",
+        "cilium",
+        "cilium/cilium",
+        "--namespace",
+        "kube-system",
+        "--wait",
+        *[e for o in cilium_opts for e in ("--set", o)],
+    )
 
 
 def main():
@@ -711,20 +770,26 @@ def main():
             f"{gw_api_version}/experimental-install.yaml",
         )
 
-    # Install Cilium using Helm
-    helm(
-        "upgrade",
-        "--install",
-        "cilium",
-        "cilium/cilium",
-        "--namespace",
-        "kube-system",
-        "--wait",
-        *[e for o in cilium_opts for e in ("--set", o)],
-    )
+    # Apply pre-CNI manifests as a Kustomization
+    if manifest_dir := config["cluster"].get("manifests-pre"):
+        # If we don't have the Cilium network policy CRDs, we need to install the Cilium operator
+        # to create them. Because we don't want to immediately get locked out if the cluster is
+        # in policy enforcement mode without audit mode, don't deploy the Cilium agent yet.
+        if not check_resource("crd/ciliumnetworkpolicies.cilium.io"):
+            install_cilium(cilium_opts, agent=False)
 
-    # Cilium operator installs CRDs during runtime. Wait for the CRDs to be installed so that
-    # manifests can use them.
+            # Wait for the CRDs to be installed
+            while not check_resource("crd/ciliumnetworkpolicies.cilium.io"):
+                time.sleep(1)
+
+        # Apply the pre-CNI manifests
+        apply_manifests(manifest_dir)
+
+    # Perform a full install/upgrade of Cilium
+    install_cilium(cilium_opts)
+
+    # The Cilium operator installs the Gateway API CRDs during runtime.
+    # Wait for the CRDs to be installed so that manifests can use them.
     if config["cluster"]["cilium"].get("gateway-api", {}).get("enabled"):
         print("Waiting for Cilium Gateway API CRDs...")
         while not check_resource("crd/ciliumgatewayclassconfigs.cilium.io"):
@@ -815,43 +880,7 @@ def main():
 
     # Apply additional manifests as a Kustomization
     if manifest_dir := config["cluster"].get("manifests"):
-        manifests, crds = [], []
-        for manifest in yaml.safe_load_all(
-            kubectl(
-                "kustomize",
-                "--enable-alpha-plugins",
-                "--enable-helm",
-                manifest_dir,
-                capture_stdout=True,
-            ).stdout
-        ):
-            if (
-                manifest.get("apiVersion") == "apiextensions.k8s.io/v1"
-                and manifest.get("kind") == "CustomResourceDefinition"
-            ):
-                crds.append(manifest)
-            else:
-                manifests.append(manifest)
-
-        # Apply CRDs before everything else
-        if len(crds):
-            kubectl(
-                "apply",
-                "--force-conflicts",
-                "--server-side",
-                "-f",
-                "-",
-                stdin=yaml.safe_dump_all(crds),
-            )
-        if len(manifests):
-            kubectl(
-                "apply",
-                "--force-conflicts",
-                "--server-side",
-                "-f",
-                "-",
-                stdin=yaml.safe_dump_all(manifests),
-            )
+        apply_manifests(manifest_dir)
 
     # Gateway API flakiness: restart the Cilium operator and agents to pick up existing gateways,
     # see https://docs.cilium.io/en/latest/network/servicemesh/gateway-api/gateway-api/#installation

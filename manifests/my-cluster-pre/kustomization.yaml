@@ -1,0 +1,10 @@
+# Additional static manifests can be applied to the cluster pre-CNI
+# using Kustomizations from the Kustomize project: https://kustomize.io/
+# CNI CRDs are present in the cluster when this is applied.
+
+# NOTE: This is especially useful for applying network policies into the
+# cluster when Cilium hardening is enabled and not in audit mode from
+# the start. Otherwise, one may experience a cluster lockout.
+
+resources:
+  - my-netpol.yaml

@@ -40,10 +40,20 @@ config_schema = Schema(
             Optional("domain"): str_schema,
             "secrets": file_schema,
             Optional("cilium"): {
-                Optional("metrics"): bool,
+                Optional("metrics"): {
+                    "enabled": bool,
+                    "servicemonitor": bool,
+                },
                 Optional("hubble"): {
                     "enabled": bool,
-                    Optional("metrics"): bool,
+                    Optional("metrics"): {
+                        "enabled": bool,
+                        "servicemonitor": bool,
+                    },
+                    Optional("export"): {
+                        "enabled": bool,
+                        "path": str_schema,
+                    },
                 },
                 Optional("hardening"): {
                     "enabled": bool,
@@ -640,11 +650,20 @@ def main():
     ):
         cilium_opts += ["operator.replicas=1"]
 
-    if config["cluster"]["cilium"].get("metrics"):
+    if metrics := config["cluster"]["cilium"].get("metrics"):
+        enabled = "true" if metrics["enabled"] else "false"
         cilium_opts += [
-            "prometheus.enabled=true",  # cilium-agent metrics
-            "operator.prometheus.enabled=true",  # cilium-operator metrics
+            f"prometheus.enabled={enabled}",  # cilium-agent metrics
+            f"operator.prometheus.enabled={enabled}",  # cilium-operator metrics
         ]
+        if metrics["enabled"]:
+            servicemonitor = "true" if metrics["servicemonitor"] else "false"
+            cilium_opts += [
+                f"hubble.metrics.serviceMonitor.enabled={servicemonitor}",
+                f"prometheus.serviceMonitor.enabled={servicemonitor}",
+                f"envoy.prometheus.serviceMonitor.enabled={servicemonitor}",
+                f"operator.prometheus.serviceMonitor.enabled={servicemonitor}",
+            ]
 
     if hubble := config["cluster"]["cilium"].get("hubble"):
         enabled = "true" if hubble["enabled"] else "false"
@@ -653,14 +672,23 @@ def main():
             f"hubble.ui.enabled={enabled}",  # Enable Hubble UI
             f"hubble.relay.enabled={enabled}",  # Enable Hubble Relay
         ]
-        if hubble["enabled"] and hubble.get("metrics"):
-            # Hubble metrics
+        if metrics := hubble.get("metrics"):
+            servicemonitor = "true" if metrics["servicemonitor"] else "false"
+            if metrics["enabled"]:
+                cilium_opts += [
+                    "hubble.metrics.enableOpenMetrics=true",
+                    "hubble.metrics.enabled={"
+                    "dns,drop,flow,flows-to-world,icmp,port-distribution,tcp,"
+                    "httpV2:exemplars=true;labelsContext=source_ip\\,source_namespace\\,"
+                    "source_workload\\,destination_ip\\,destination_namespace\\,"
+                    "destination_workload\\,traffic_direction}",
+                    f"hubble.metrics.serviceMonitor.enabled={servicemonitor}",
+                ]
+        if export := hubble.get("export"):
+            enabled = "true" if export["enabled"] else "false"
             cilium_opts += [
-                "hubble.metrics.enableOpenMetrics=true",
-                "hubble.metrics.enabled={dns,drop,tcp,flow,port-distribution,icmp,"
-                "httpV2:exemplars=true;labelsContext=source_ip\\,source_namespace\\,"
-                "source_workload\\,destination_ip\\,destination_namespace\\,"
-                "destination_workload\\,traffic_direction}",
+                f"hubble.export.static.enabled={enabled}",
+                f"hubble.export.static.filePath={export['path']}",
             ]
 
     enable_hardening = True

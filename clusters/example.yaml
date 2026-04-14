@@ -3,10 +3,17 @@ cluster:
   domain: example.com # The network domain that the cluster resides in, used for all nodes (optional)
   secrets: secrets/my-cluster/secrets.yaml # Cluster secrets file. Generate one with `talosctl gen secrets`.
   cilium: # Specify additional configuration for the Cilium installation (optional)
-    metrics: false # Enable cilium-agent and cilium-operator metrics (optional)
+    metrics: # Configure Cilium metrics (optional)
+      enabled: false # Enable Cilium metrics
+      servicemonitor: false # Enable creating ServiceMonitor resources. Requires CRDs to be installed via manifests-pre.
     hubble: # Configure Cilium Hubble (optional)
       enabled: false # Enable Hubble with Hubble UI
-      metrics: false # Enable Hubble metrics collection (optional)
+      metrics: # Configure Hubble metrics (optional)
+        enabled: false # Enable Hubble metrics
+        servicemonitor: false # Enable creating ServiceMonitor resources. Requires CRDs to be installed via manifests-pre.
+      export: # Configure event export (optional)
+        enabled: false # Enable exporting Hubble events
+        path: /var/run/cilium/hubble/events.log # Path to write Hubble events to
     hardening: # Hardening options for Cilium (optional)
       enabled: true # Harden the Cilium installation: all permitted traffic must have a matching NetworkPolicy
       # Start in audit mode: NetworkPolicy violations (including lack of policies) will be logged instead of denied

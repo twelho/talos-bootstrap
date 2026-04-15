@@ -291,7 +291,11 @@ def install_cilium(opts, agent=True):
         "--namespace",
         "kube-system",
         "--wait",
-        *[e for o in cilium_opts for e in ("--set", o)],
+        *[
+            e
+            for o in cilium_opts
+            for e in (o if isinstance(o, tuple) else ("--set", o))
+        ],
     )
 
 
@@ -702,6 +706,10 @@ def main():
             "policyEnforcementMode=always",  # Enforce network policies
             "hostFirewall.enabled=true",  # Enable host policies (host-level network policies)
             "extraConfig.allow-localhost=policy",  # Enforce policies for node-local traffic as well
+            (
+                "--set-string",
+                "extraConfig.enable-node-selector-labels=true",
+            ),  # Enable node labels for toNodes/fromNodes in policies
         ]
 
     if enable_audit_mode:

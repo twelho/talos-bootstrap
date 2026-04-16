@@ -240,42 +240,50 @@ def resolve_gateway_api_version():
 
 def apply_manifests(manifest_dir):
     """Kustomize and apply CRDs and manifests from the given directory"""
+    # Split the kustomize output into individual YAML documents. We avoid yaml.safe_load_all
+    # here because CRDs can contain values like `- =` that are not parseable by PyYAML.
+    kustomize_output = kubectl(
+        "kustomize",
+        "--enable-alpha-plugins",
+        "--enable-helm",
+        "--load-restrictor=LoadRestrictionsNone",
+        manifest_dir,
+        capture_stdout=True,
+    ).stdout
     manifests, crds = [], []
-    for manifest in yaml.safe_load_all(
-        kubectl(
-            "kustomize",
-            "--enable-alpha-plugins",
-            "--enable-helm",
-            manifest_dir,
-            capture_stdout=True,
-        ).stdout
-    ):
+    for doc in re.split(r"^---$", kustomize_output, flags=re.MULTILINE):
+        if not doc.strip():
+            continue
+        # Only parse the metadata we need; the full document is passed through as-is
+        meta = yaml.safe_load(
+            re.match(r"(?:.*?\n)*(apiVersion:.*\nkind:.*)\n", doc).group(1)
+        )
         if (
-            manifest.get("apiVersion") == "apiextensions.k8s.io/v1"
-            and manifest.get("kind") == "CustomResourceDefinition"
+            meta.get("apiVersion") == "apiextensions.k8s.io/v1"
+            and meta.get("kind") == "CustomResourceDefinition"
         ):
-            crds.append(manifest)
+            crds.append(doc)
         else:
-            manifests.append(manifest)
+            manifests.append(doc)
 
     # Apply CRDs before everything else
-    if len(crds):
+    if crds:
         kubectl(
             "apply",
             "--force-conflicts",
             "--server-side",
             "-f",
             "-",
-            stdin=yaml.safe_dump_all(crds),
+            stdin="---\n".join(crds),
         )
-    if len(manifests):
+    if manifests:
         kubectl(
             "apply",
             "--force-conflicts",
             "--server-side",
             "-f",
             "-",
-            stdin=yaml.safe_dump_all(manifests),
+            stdin="---\n".join(manifests),
         )
 
 

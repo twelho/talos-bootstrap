@@ -22,7 +22,8 @@ policies:
       skipPaths:
         - .git/
       includeSuffixes:
-        - .py
+        - .go
       allowPrecedingComments: true
       header: |
-        # SPDX-License-Identifier: MIT
+        // SPDX-License-Identifier: MIT
+        // (c) Dennis Marttinen, Veeti Poutsalo 2026

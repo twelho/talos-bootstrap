@@ -1,4 +1,0 @@
-python-gnupg
-pyyaml
-requests
-schema

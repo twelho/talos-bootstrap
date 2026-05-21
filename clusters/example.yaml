@@ -54,13 +54,7 @@ cluster:
     components-extra: image-reflector-controller,image-automation-controller # (optional)
     all-namespaces: true # Set to "false" to make Flux only watch the installation namespace (optional)
     network-policy: true # Set to "false" to disable Flux network policy installation (optional)
-    ssh: # Bootstrap Flux in SSH mode, otherwise, install without configuration (optional)
-      url: ssh://git@server.home/my-cluster/flux # The source repository and path for Flux to track
-      branch: master # The branch in the repository for Flux to track
-      # Flux SSH key file for accessing the configuration repo. Generate with `ssh-keygen`.
-      key: secrets/my-cluster/flux.key
-      # Custom path for flux; default is `clusters/{cluster name}` (optional)
-      path: clusters/my-cluster/flux
+    # GitRepository, OCIRepository, Kustomization, and related sync objects should be applied via manifests.
   # Specify a customized installation image, for example, from https://factory.talos.dev/ (optional).
   # Applied to all nodes. If no tag is given, the CLI version is used, enabling automatic upgrades.
   image: factory.talos.dev/installer-secureboot/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba

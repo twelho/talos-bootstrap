@@ -1,0 +1,24 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - govet
+    - errcheck
+    - ineffassign
+    - staticcheck
+    - unused
+    - misspell
+    - revive
+    - gocritic
+    - unconvert
+    - prealloc
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - prealloc
+          - gocritic
+
+run:
+  timeout: 5m

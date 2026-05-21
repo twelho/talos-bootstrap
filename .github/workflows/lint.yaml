@@ -1,5 +1,5 @@
 on:
-  pull_request_target: # https://github.com/wearerequired/lint-action/?tab=readme-ov-file#limitations
+  pull_request:
   push:
     branches:
       - master
@@ -7,7 +7,7 @@ on:
 name: Linting
 jobs:
   lint:
-    name: Python
+    name: Go
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -15,12 +15,16 @@ jobs:
     steps:
       - name: Check out sources
         uses: actions/checkout@v6
-      - name: Install Python dependencies
-        run: pip install black flake8
-      - name: Run wearerequired/lint-action
-        uses: wearerequired/lint-action@df31ae8635c46366688e0bea44d7aba2e1468813
+      - name: Set up Go
+        uses: actions/setup-go@v6
         with:
-          continue_on_error: false
-          black: true
-          flake8: true
-          flake8_args: --max-line-length 100
+          go-version-file: go.mod
+          cache: true
+      - name: go vet
+        run: go vet ./...
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+      - name: go test
+        run: go test ./...

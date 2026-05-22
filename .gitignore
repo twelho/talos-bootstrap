@@ -1,10 +1,13 @@
-/talos-bootstrap
-/bootstrap
+# Devenv
+.devenv*
+devenv.local.nix
+devenv.local.yaml
 
-/secrets/**
-!/secrets/**/
-!/secrets/**/.gitkeep
+# direnv
+.direnv
 
-/controlplane.yaml
-/worker.yaml
-/talosconfig
+# pre-commit
+.pre-commit-config.yaml
+
+# Nix build results
+result

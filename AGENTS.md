@@ -7,3 +7,5 @@ Compartmentalize and modularize the code appropriately. Do not cause a tangled w
 Do NOT stack point fixes. Be smart about cascading effects and edge cases: always fail fast and safely. For example, prefer allowlists over denylists, and always parse/validate strictly.
 
 NO em dashes.
+
+Keep `Makefile` and `flake.nix` in sync: if you change build flags, targets, or tooling in one, apply the equivalent change to the other.

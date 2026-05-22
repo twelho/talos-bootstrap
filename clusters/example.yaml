@@ -5,12 +5,17 @@ cluster:
   cilium: # Specify additional configuration for the Cilium installation (optional)
     metrics: # Configure Cilium metrics (optional)
       enabled: false # Enable Cilium metrics
-      servicemonitor: false # Enable creating ServiceMonitor resources. Requires CRDs to be installed via manifests-pre.
+      # Enable creating ServiceMonitor resources. talos-bootstrap installs the
+      # ServiceMonitor / PodMonitor CRDs from prometheus-operator automatically
+      # when this is set, so a manifests-pre CRD bundle is no longer required.
+      servicemonitor: false
     hubble: # Configure Cilium Hubble (optional)
       enabled: false # Enable Hubble with Hubble UI
       metrics: # Configure Hubble metrics (optional)
         enabled: false # Enable Hubble metrics
-        servicemonitor: false # Enable creating ServiceMonitor resources. Requires CRDs to be installed via manifests-pre.
+        # Enable creating ServiceMonitor resources. The required CRDs are
+        # installed by talos-bootstrap automatically (see metrics.servicemonitor).
+        servicemonitor: false
       export: # Configure event export (optional)
         enabled: false # Enable exporting Hubble events
         path: /var/run/cilium/hubble/events.log # Path to write Hubble events to
@@ -30,6 +35,10 @@ cluster:
       # (in the style of NodePort) without requiring a LoadBalancer service (optional)
       host-network: false
       privileged-ports: false # Allow Envoy to bind to ports <1024 when using Gateway API (optional)
+      # Pin a specific gateway-api release (e.g. v1.4.0). When unset, the release is
+      # auto-resolved from Cilium's go.mod via GitHub. Set this for air-gapped clusters
+      # or to lock the CRD bundle for reproducibility. (optional)
+      version: ""
     node-ipam: # Cilium Node IPAM LoadBalancer configuration (optional)
       enabled: false # Enable https://docs.cilium.io/en/latest/network/node-ipam/ (optional)
     native-routing: # Configure native routing support (optional)

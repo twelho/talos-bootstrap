@@ -3,7 +3,13 @@
 
 package cilium
 
-import "sigs.k8s.io/yaml"
+import (
+	"slices"
+
+	"sigs.k8s.io/yaml"
+
+	"github.com/twelho/talos-bootstrap/internal/config"
+)
 
 // Capability sets applied by talos-bootstrap. SYS_MODULE is intentionally
 // absent: it is forbidden on Talos. Envoy normally needs SYS_ADMIN, but Cilium
@@ -24,52 +30,63 @@ const hubbleHTTPv2Metric = "httpV2:exemplars=true;labelsContext=" +
 	"destination_ip,destination_namespace,destination_workload," +
 	"traffic_direction"
 
+// valuesBuilder accumulates the Helm values map together with the capability
+// sets that some features (BGP, Gateway API privileged ports) extend. Every
+// apply* method mutates the builder; rendering is one linear pass.
+type valuesBuilder struct {
+	v         map[string]any
+	agentCaps []string
+	envoyCaps []string
+}
+
 // Values renders Options into the nested map structure that the Cilium Helm
 // chart consumes. agent=false leaves the agent DaemonSet out of the install,
 // which is required for the pre-CNI bootstrap of CRDs without exposing the
 // cluster to a half-configured policy enforcer.
 func (o Options) Values(agent bool) map[string]any {
-	v := map[string]any{
-		"agent":                agent,
-		"ipam":                 map[string]any{"mode": "kubernetes"},
-		"kubeProxyReplacement": true,
-		"cgroup": map[string]any{
-			"autoMount": map[string]any{"enabled": false},
-			"hostRoot":  "/sys/fs/cgroup",
+	b := &valuesBuilder{
+		v: map[string]any{
+			"agent":                agent,
+			"ipam":                 map[string]any{"mode": "kubernetes"},
+			"kubeProxyReplacement": true,
+			"cgroup": map[string]any{
+				"autoMount": map[string]any{"enabled": false},
+				"hostRoot":  "/sys/fs/cgroup",
+			},
+			"k8sServiceHost":    "localhost",
+			"k8sServicePort":    7445,
+			"rollOutCiliumPods": true,
+			"envoy":             map[string]any{"rollOutPods": true},
+			"hubble": map[string]any{
+				"relay": map[string]any{"rollOutPods": true},
+				"ui":    map[string]any{"rollOutPods": true},
+			},
+			"operator": map[string]any{"rollOutPods": true},
 		},
-		"k8sServiceHost":    "localhost",
-		"k8sServicePort":    7445,
-		"rollOutCiliumPods": true,
-		"envoy":             map[string]any{"rollOutPods": true},
-		"hubble": map[string]any{
-			"relay": map[string]any{"rollOutPods": true},
-			"ui":    map[string]any{"rollOutPods": true},
-		},
-		"operator": map[string]any{"rollOutPods": true},
+		agentCaps: slices.Clone(defaultAgentCapabilities),
+		envoyCaps: slices.Clone(defaultEnvoyCapabilities),
 	}
 
-	if o.SingleOperator {
-		setPath(v, []string{"operator", "replicas"}, 1)
+	if o.singleOperator() {
+		b.set([]string{"operator", "replicas"}, 1)
 	}
 
-	agentCaps := append([]string{}, defaultAgentCapabilities...)
-	envoyCaps := append([]string{}, defaultEnvoyCapabilities...)
+	c := o.Cilium
+	o.applyMetrics(b, c)
+	o.applyHubble(b, c)
+	o.applyHardening(b)
+	o.applyNativeRouting(b, c)
+	o.applyNetkit(b, c)
+	o.applyBGP(b, c)
+	o.applyMasquerade(b, c)
+	o.applyNodeIPAM(b, c)
+	o.applyGatewayAPI(b)
 
-	o.applyMetrics(v)
-	o.applyHubble(v)
-	o.applyHardening(v)
-	o.applyNativeRouting(v)
-	o.applyNetkit(v)
-	o.applyBGP(v, &agentCaps)
-	o.applyMasquerade(v)
-	o.applyNodeIPAM(v)
-	o.applyGatewayAPI(v, &envoyCaps)
+	b.set([]string{"securityContext", "capabilities", "ciliumAgent"}, b.agentCaps)
+	b.set([]string{"securityContext", "capabilities", "cleanCiliumState"}, defaultCleanStateCapabilities)
+	b.set([]string{"envoy", "securityContext", "capabilities", "envoy"}, b.envoyCaps)
 
-	setPath(v, []string{"securityContext", "capabilities", "ciliumAgent"}, agentCaps)
-	setPath(v, []string{"securityContext", "capabilities", "cleanCiliumState"}, defaultCleanStateCapabilities)
-	setPath(v, []string{"envoy", "securityContext", "capabilities", "envoy"}, envoyCaps)
-
-	return v
+	return b.v
 }
 
 // ValuesYAML renders Options to a YAML document suitable for `helm install -f`
@@ -78,137 +95,147 @@ func (o Options) ValuesYAML(agent bool) ([]byte, error) {
 	return yaml.Marshal(o.Values(agent))
 }
 
-func (o Options) applyMetrics(v map[string]any) {
-	if o.Metrics == nil {
+func (Options) applyMetrics(b *valuesBuilder, c *config.CiliumConfig) {
+	if c == nil || c.Metrics == nil {
 		return
 	}
-	en := o.Metrics.Enabled
-	setPath(v, []string{"prometheus", "enabled"}, en)
-	setPath(v, []string{"operator", "prometheus", "enabled"}, en)
+	en := c.Metrics.Enabled
+	b.set([]string{"prometheus", "enabled"}, en)
+	b.set([]string{"operator", "prometheus", "enabled"}, en)
 	if !en {
 		return
 	}
-	sm := o.Metrics.ServiceMonitor
-	setPath(v, []string{"hubble", "metrics", "serviceMonitor", "enabled"}, sm)
-	setPath(v, []string{"prometheus", "serviceMonitor", "enabled"}, sm)
-	setPath(v, []string{"envoy", "prometheus", "serviceMonitor", "enabled"}, sm)
-	setPath(v, []string{"operator", "prometheus", "serviceMonitor", "enabled"}, sm)
+	sm := c.Metrics.ServiceMonitor
+	b.set([]string{"prometheus", "serviceMonitor", "enabled"}, sm)
+	b.set([]string{"envoy", "prometheus", "serviceMonitor", "enabled"}, sm)
+	b.set([]string{"operator", "prometheus", "serviceMonitor", "enabled"}, sm)
+	// Hubble's metrics block is owned by applyHubble: only render the
+	// serviceMonitor child here if the user actually opted into Hubble.
+	if c.Hubble != nil {
+		b.set([]string{"hubble", "metrics", "serviceMonitor", "enabled"}, sm)
+	}
 }
 
-func (o Options) applyHubble(v map[string]any) {
-	if o.Hubble == nil {
+func (Options) applyHubble(b *valuesBuilder, c *config.CiliumConfig) {
+	if c == nil || c.Hubble == nil {
 		return
 	}
-	setPath(v, []string{"hubble", "enabled"}, o.Hubble.Enabled)
-	setPath(v, []string{"hubble", "ui", "enabled"}, o.Hubble.Enabled)
-	setPath(v, []string{"hubble", "relay", "enabled"}, o.Hubble.Enabled)
+	b.set([]string{"hubble", "enabled"}, c.Hubble.Enabled)
+	b.set([]string{"hubble", "ui", "enabled"}, c.Hubble.Enabled)
+	b.set([]string{"hubble", "relay", "enabled"}, c.Hubble.Enabled)
 
-	if o.Hubble.Metrics != nil && o.Hubble.Metrics.Enabled {
-		setPath(v, []string{"hubble", "metrics", "enableOpenMetrics"}, true)
-		setPath(v, []string{"hubble", "metrics", "enabled"}, []string{
+	if c.Hubble.Metrics != nil && c.Hubble.Metrics.Enabled {
+		b.set([]string{"hubble", "metrics", "enableOpenMetrics"}, true)
+		b.set([]string{"hubble", "metrics", "enabled"}, []string{
 			"dns", "drop", "flow", "flows-to-world", "icmp",
 			"port-distribution", "tcp", hubbleHTTPv2Metric,
 		})
-		setPath(v, []string{"hubble", "metrics", "serviceMonitor", "enabled"},
-			o.Hubble.Metrics.ServiceMonitor)
+		b.set([]string{"hubble", "metrics", "serviceMonitor", "enabled"},
+			c.Hubble.Metrics.ServiceMonitor)
 	}
 
-	if o.Hubble.Export != nil {
-		setPath(v, []string{"hubble", "export", "static", "enabled"}, o.Hubble.Export.Enabled)
-		setPath(v, []string{"hubble", "export", "static", "filePath"}, o.Hubble.Export.Path)
+	if c.Hubble.Export != nil {
+		b.set([]string{"hubble", "export", "static", "enabled"}, c.Hubble.Export.Enabled)
+		b.set([]string{"hubble", "export", "static", "filePath"}, c.Hubble.Export.Path)
 	}
 }
 
-func (o Options) applyHardening(v map[string]any) {
-	if o.Hardening.Enabled {
-		v["policyEnforcementMode"] = "always"
-		setPath(v, []string{"hostFirewall", "enabled"}, true)
-		setPath(v, []string{"extraConfig", "allow-localhost"}, "policy")
+func (o Options) applyHardening(b *valuesBuilder) {
+	if o.hardeningEnabled() {
+		b.v["policyEnforcementMode"] = "always"
+		b.set([]string{"hostFirewall", "enabled"}, true)
+		b.set([]string{"extraConfig", "allow-localhost"}, "policy")
 		// Helm requires this be a string, not a bool, so it can pass through
 		// to the agent's --set-string equivalent.
-		setPath(v, []string{"extraConfig", "enable-node-selector-labels"}, "true")
+		b.set([]string{"extraConfig", "enable-node-selector-labels"}, "true")
 	}
-	if o.Hardening.AuditMode {
-		v["policyAuditMode"] = true
+	if o.hardeningAuditMode() {
+		b.v["policyAuditMode"] = true
 	}
 }
 
-func (o Options) applyNativeRouting(v map[string]any) {
-	if o.NativeRouting == nil || !o.NativeRouting.Enabled {
+func (Options) applyNativeRouting(b *valuesBuilder, c *config.CiliumConfig) {
+	if c == nil || c.NativeRouting == nil || !c.NativeRouting.Enabled {
 		return
 	}
-	v["routingMode"] = "native"
-	v["ipv4NativeRoutingCIDR"] = o.NativeRouting.IPv4CIDR
-	v["autoDirectNodeRoutes"] = o.NativeRouting.DirectRoutes
+	b.v["routingMode"] = "native"
+	b.v["ipv4NativeRoutingCIDR"] = c.NativeRouting.IPv4CIDR
+	b.v["autoDirectNodeRoutes"] = c.NativeRouting.DirectRoutes
 }
 
-func (o Options) applyNetkit(v map[string]any) {
-	if !o.Netkit {
+func (Options) applyNetkit(b *valuesBuilder, c *config.CiliumConfig) {
+	if c == nil || !c.Netkit {
 		return
 	}
-	setPath(v, []string{"bpf", "datapathMode"}, "netkit")
+	b.set([]string{"bpf", "datapathMode"}, "netkit")
 }
 
-func (o Options) applyBGP(v map[string]any, agentCaps *[]string) {
-	if o.BGP == nil || !o.BGP.Enabled {
+func (Options) applyBGP(b *valuesBuilder, c *config.CiliumConfig) {
+	if c == nil || c.BGP == nil || !c.BGP.Enabled {
 		return
 	}
-	setPath(v, []string{"bgpControlPlane", "enabled"}, true)
-	*agentCaps = append(*agentCaps, "NET_BIND_SERVICE")
+	b.set([]string{"bgpControlPlane", "enabled"}, true)
+	b.agentCaps = append(b.agentCaps, "NET_BIND_SERVICE")
 }
 
-func (o Options) applyMasquerade(v map[string]any) {
-	if o.Masquerade == nil {
+func (Options) applyMasquerade(b *valuesBuilder, c *config.CiliumConfig) {
+	if c == nil || c.Masquerade == nil {
 		return
 	}
-	if o.Masquerade.Enabled {
-		setPath(v, []string{"bpf", "masquerade"}, o.Masquerade.BPF)
+	if !c.Masquerade.Enabled {
+		b.set([]string{"bpf", "masquerade"}, false)
+		b.v["enableIPv4Masquerade"] = false
+		b.v["enableIPv6Masquerade"] = false
 		return
 	}
-	setPath(v, []string{"bpf", "masquerade"}, false)
-	v["enableIPv4Masquerade"] = false
-	v["enableIPv6Masquerade"] = false
+	b.set([]string{"bpf", "masquerade"}, c.Masquerade.BPFEnabled())
 }
 
-func (o Options) applyNodeIPAM(v map[string]any) {
-	if o.NodeIPAM == nil || !o.NodeIPAM.Enabled {
+func (Options) applyNodeIPAM(b *valuesBuilder, c *config.CiliumConfig) {
+	if c == nil || c.NodeIPAM == nil || !c.NodeIPAM.Enabled {
 		return
 	}
-	setPath(v, []string{"nodeIPAM", "enabled"}, true)
+	b.set([]string{"nodeIPAM", "enabled"}, true)
 }
 
-func (o Options) applyGatewayAPI(v map[string]any, envoyCaps *[]string) {
+func (o Options) applyGatewayAPI(b *valuesBuilder) {
 	if !o.GatewayAPIEnabled() {
 		return
 	}
-	setPath(v, []string{"gatewayAPI", "enabled"}, true)
-	setPath(v, []string{"gatewayAPI", "enableAlpn"}, true)
-	setPath(v, []string{"gatewayAPI", "enableAppProtocol"}, true)
-	if o.GatewayAPI.HostNetwork {
-		setPath(v, []string{"gatewayAPI", "hostNetwork", "enabled"}, true)
+	gw := o.Cilium.GatewayAPI
+	b.set([]string{"gatewayAPI", "enabled"}, true)
+	b.set([]string{"gatewayAPI", "enableAlpn"}, true)
+	b.set([]string{"gatewayAPI", "enableAppProtocol"}, true)
+	if gw.HostNetwork {
+		b.set([]string{"gatewayAPI", "hostNetwork", "enabled"}, true)
 	}
-	if o.GatewayAPI.PrivilegedPorts {
-		setPath(v, []string{"envoy", "securityContext", "capabilities", "keepCapNetBindService"}, true)
-		*envoyCaps = append(*envoyCaps, "NET_BIND_SERVICE")
+	if gw.PrivilegedPorts {
+		b.set([]string{"envoy", "securityContext", "capabilities", "keepCapNetBindService"}, true)
+		b.envoyCaps = append(b.envoyCaps, "NET_BIND_SERVICE")
 	}
 }
 
-// setPath writes v at the nested map address described by path, creating
-// intermediate maps as needed. If a non-map value is encountered along the
-// way it is replaced; this is fine because Values builds the tree itself
-// and there are no callers that rely on overwriting non-maps.
-func setPath(root map[string]any, path []string, v any) {
-	cur := root
+// set writes value at the nested map address described by path, creating
+// intermediate maps as needed. Panics if an existing intermediate is not a
+// map: Values is the sole writer and any conflict would silently lose data.
+func (b *valuesBuilder) set(path []string, value any) {
+	cur := b.v
 	for i, key := range path {
 		if i == len(path)-1 {
-			cur[key] = v
+			cur[key] = value
 			return
 		}
-		next, ok := cur[key].(map[string]any)
-		if !ok {
-			next = map[string]any{}
-			cur[key] = next
+		next := cur[key]
+		if next == nil {
+			m := map[string]any{}
+			cur[key] = m
+			cur = m
+			continue
 		}
-		cur = next
+		m, isMap := next.(map[string]any)
+		if !isMap {
+			panic("cilium values: non-map at " + key)
+		}
+		cur = m
 	}
 }

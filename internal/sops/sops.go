@@ -2,14 +2,18 @@
 // (c) Dennis Marttinen, Veeti Poutsalo 2026
 
 // Package sops creates the in-cluster secrets that Mozilla SOPS needs to
-// decrypt encrypted resources reconciled by Flux. Two backends are supported,
-// matching the Python original: a GPG keyring entry (looked up via the local
-// gpg agent) and an age key file.
+// decrypt encrypted resources reconciled by Flux. Two backends are supported:
+// a GPG keyring entry (looked up via the local gpg agent) and an age key file.
 //
 // GPG export shells out to `gpg` because reimplementing the agent/keyring
 // lookup in Go would mean either adopting a private-key store of our own or
 // pulling in heavy crypto code that duplicates what gpg already does well.
 // Age, by contrast, is a flat file we can simply read.
+//
+// The GPG path assumes the user's gpg-agent is unlocked and able to satisfy
+// the export non-interactively. A passphrase-protected key with no preloaded
+// agent will block the bootstrap on a pinentry that talos-bootstrap does not
+// connect to a TTY.
 package sops
 
 import (
@@ -43,6 +47,11 @@ func EnsureGPG(ctx context.Context, c *kube.Client, keyID string) error {
 	}
 	if exists {
 		return nil
+	}
+	// Fail fast if the key isn't in the local keyring. Without this, the
+	// export below would hang on a pinentry prompt for a missing key.
+	if _, err := capture(ctx, "gpg", []string{"--batch", "--list-secret-keys", keyID}, nil); err != nil {
+		return fmt.Errorf("gpg secret key %q not available locally: %w", keyID, err)
 	}
 	armored, err := exportGPGSecretKey(ctx, keyID)
 	if err != nil {

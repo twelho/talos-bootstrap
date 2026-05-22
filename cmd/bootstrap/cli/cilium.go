@@ -27,7 +27,7 @@ func ciliumCmd() *cobra.Command {
 }
 
 func ciliumValuesCmd() *cobra.Command {
-	var noAgent bool
+	agent := true
 	cmd := &cobra.Command{
 		Use:   "values <config-file>",
 		Short: "Render the Cilium Helm values.yaml that talos-bootstrap would install",
@@ -38,7 +38,7 @@ func ciliumValuesCmd() *cobra.Command {
 				return err
 			}
 			opts := cilium.FromConfig(cfg.Cluster.Cilium, cilium.TopologyFromConfig(cfg))
-			data, err := opts.ValuesYAML(!noAgent)
+			data, err := opts.ValuesYAML(agent)
 			if err != nil {
 				return fmt.Errorf("render values: %w", err)
 			}
@@ -46,7 +46,7 @@ func ciliumValuesCmd() *cobra.Command {
 			return err
 		},
 	}
-	cmd.Flags().BoolVar(&noAgent, "no-agent", false,
-		"render the operator-only variant used for the pre-CNI manifests phase")
+	cmd.Flags().BoolVar(&agent, "agent", true,
+		"include the agent DaemonSet (set false to render the operator-only variant used for the pre-CNI manifests phase)")
 	return cmd
 }

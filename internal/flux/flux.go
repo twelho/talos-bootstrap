@@ -22,11 +22,11 @@ import (
 func Apply(ctx context.Context, c *kube.Client, cfg *config.Flux) error {
 	opts := install.MakeDefaultOptions()
 	opts.Namespace = "flux-system"
-	if cfg.Components != "" {
-		opts.Components = strings.Split(cfg.Components, ",")
+	if c := splitCSV(cfg.Components); len(c) > 0 {
+		opts.Components = c
 	}
-	if cfg.ComponentsExtra != "" {
-		opts.ComponentsExtra = strings.Split(cfg.ComponentsExtra, ",")
+	if c := splitCSV(cfg.ComponentsExtra); len(c) > 0 {
+		opts.ComponentsExtra = c
 	}
 	opts.WatchAllNamespaces = cfg.AllNamespacesEnabled()
 	opts.NetworkPolicy = cfg.NetworkPolicyEnabled()
@@ -43,4 +43,20 @@ func Apply(ctx context.Context, c *kube.Client, cfg *config.Flux) error {
 		return fmt.Errorf("apply flux manifests: %w", err)
 	}
 	return nil
+}
+
+// splitCSV splits on commas and discards empty entries so a stray comma
+// ("source-controller,,kustomize-controller") does not become a component
+// name that Flux will reject.
+func splitCSV(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

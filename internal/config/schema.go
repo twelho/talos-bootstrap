@@ -3,217 +3,157 @@
 
 package config
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"reflect"
+	"strconv"
+	"strings"
+)
 
 // SchemaJSON returns a JSON Schema document for talos-bootstrap YAML
-// configuration files. YAML language servers consume JSON Schema for validation
-// and completion, so the property names intentionally follow the yaml tags in
-// types.go.
+// configuration files. The schema is derived from the Config struct by
+// reflection so that yaml tags drive property names and the subset of
+// validator tags with JSON Schema equivalents (required, cidr, unique, min)
+// drive the corresponding constraints. types.go is the single source of
+// truth; this file only translates.
 func SchemaJSON() ([]byte, error) {
-	data, err := json.MarshalIndent(schema(), "", "  ")
+	s := schemaFor(reflect.TypeOf(Config{}))
+	s["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+	s["$id"] = "https://github.com/twelho/talos-bootstrap/schema/config.schema.json"
+	s["title"] = "talos-bootstrap configuration"
+	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return nil, err
 	}
 	return append(data, '\n'), nil
 }
 
-func schema() map[string]any {
-	return object(map[string]any{
-		"$schema": "https://json-schema.org/draft/2020-12/schema",
-		"$id":     "https://github.com/twelho/talos-bootstrap/schema/config.schema.json",
-		"title":   "talos-bootstrap configuration",
-		"required": []string{
-			"cluster",
-			"controlplane",
-		},
-		"properties": map[string]any{
-			"cluster":      clusterSchema(),
-			"controlplane": controlPlaneSchema(),
-			"worker":       workerSchema(),
-		},
-	})
+// schemaFor renders the JSON Schema fragment that describes t. Pointer types
+// are transparently dereferenced; presence/absence is governed by the
+// validator tag on the containing struct field, not by pointer-ness.
+func schemaFor(t reflect.Type) map[string]any {
+	for t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	switch t.Kind() {
+	case reflect.Struct:
+		return structSchema(t)
+	case reflect.Slice, reflect.Array:
+		return map[string]any{"type": "array", "items": schemaFor(t.Elem())}
+	case reflect.Map:
+		return map[string]any{"type": "object", "additionalProperties": schemaFor(t.Elem())}
+	case reflect.String:
+		return map[string]any{"type": "string"}
+	case reflect.Bool:
+		return map[string]any{"type": "boolean"}
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return map[string]any{"type": "integer"}
+	case reflect.Float32, reflect.Float64:
+		return map[string]any{"type": "number"}
+	}
+	return map[string]any{}
 }
 
-func clusterSchema() map[string]any {
-	return object(map[string]any{
-		"required": []string{
-			"name",
-			"secrets",
-		},
-		"properties": map[string]any{
-			"name":          stringSchema(),
-			"domain":        stringSchema(),
-			"secrets":       stringSchema(),
-			"cilium":        ciliumSchema(),
-			"sops":          sopsSchema(),
-			"flux":          fluxSchema(),
-			"image":         stringSchema(),
-			"patches":       stringList(true),
-			"manifests-pre": stringSchema(),
-			"manifests":     stringSchema(),
-		},
-	})
-}
-
-func ciliumSchema() map[string]any {
-	return object(map[string]any{
-		"properties": map[string]any{
-			"metrics":        metricsSchema(),
-			"hubble":         hubbleSchema(),
-			"hardening":      hardeningSchema(),
-			"gateway-api":    gatewayAPISchema(),
-			"node-ipam":      enabledSchema(),
-			"native-routing": nativeRoutingSchema(),
-			"netkit":         boolSchema(),
-			"bgp":            enabledSchema(),
-			"masquerade":     masqueradeSchema(),
-		},
-	})
-}
-
-func metricsSchema() map[string]any {
-	return object(map[string]any{
-		"properties": map[string]any{
-			"enabled":        boolSchema(),
-			"servicemonitor": boolSchema(),
-		},
-	})
-}
-
-func hubbleSchema() map[string]any {
-	return object(map[string]any{
-		"properties": map[string]any{
-			"enabled": boolSchema(),
-			"metrics": metricsSchema(),
-			"export": object(map[string]any{
-				"required": []string{"path"},
-				"properties": map[string]any{
-					"enabled": boolSchema(),
-					"path":    stringSchema(),
-				},
-			}),
-		},
-	})
-}
-
-func hardeningSchema() map[string]any {
-	return object(map[string]any{
-		"properties": map[string]any{
-			"enabled":    boolSchema(),
-			"audit-mode": boolSchema(),
-		},
-	})
-}
-
-func gatewayAPISchema() map[string]any {
-	return object(map[string]any{
-		"properties": map[string]any{
-			"enabled":          boolSchema(),
-			"host-network":     boolSchema(),
-			"privileged-ports": boolSchema(),
-		},
-	})
-}
-
-func nativeRoutingSchema() map[string]any {
-	return object(map[string]any{
-		"required": []string{"ipv4-cidr"},
-		"properties": map[string]any{
-			"enabled":       boolSchema(),
-			"ipv4-cidr":     map[string]any{"type": "string", "format": "cidr"},
-			"direct-routes": boolSchema(),
-		},
-	})
-}
-
-func masqueradeSchema() map[string]any {
-	return object(map[string]any{
-		"properties": map[string]any{
-			"enabled": boolSchema(),
-			"bpf":     boolSchema(),
-		},
-	})
-}
-
-func sopsSchema() map[string]any {
-	return object(map[string]any{
-		"properties": map[string]any{
-			"gpg": stringSchema(),
-			"age": stringSchema(),
-		},
-	})
-}
-
-func fluxSchema() map[string]any {
-	return object(map[string]any{
-		"properties": map[string]any{
-			"components":       stringSchema(),
-			"components-extra": stringSchema(),
-			"all-namespaces":   boolSchema(),
-			"network-policy":   boolSchema(),
-		},
-	})
-}
-
-func controlPlaneSchema() map[string]any {
-	return object(map[string]any{
-		"required": []string{"nodes"},
-		"properties": map[string]any{
-			"record":             stringSchema(),
-			"record-as-endpoint": boolSchema(),
-			"patches":            stringList(true),
-			"nodes":              nodesSchema(true),
-		},
-	})
-}
-
-func workerSchema() map[string]any {
-	return object(map[string]any{
-		"properties": map[string]any{
-			"patches": stringList(true),
-			"nodes":   nodesSchema(false),
-		},
-	})
-}
-
-func nodesSchema(required bool) map[string]any {
-	s := object(map[string]any{
-		"additionalProperties": stringList(true),
-	})
-	if required {
-		s["minProperties"] = 1
+func structSchema(t reflect.Type) map[string]any {
+	props := map[string]any{}
+	var required []string
+	for i := range t.NumField() {
+		f := t.Field(i)
+		if !f.IsExported() {
+			continue
+		}
+		name := yamlName(f)
+		if name == "-" {
+			continue
+		}
+		sub := schemaFor(f.Type)
+		applyValidate(f.Tag.Get("validate"), sub, &required, name)
+		props[name] = sub
+	}
+	s := map[string]any{
+		"type":                 "object",
+		"properties":           props,
+		"additionalProperties": false,
+	}
+	if len(required) > 0 {
+		s["required"] = required
 	}
 	return s
 }
 
-func enabledSchema() map[string]any {
-	return object(map[string]any{
-		"properties": map[string]any{
-			"enabled": boolSchema(),
-		},
-	})
-}
-
-func object(fields map[string]any) map[string]any {
-	fields["type"] = "object"
-	if _, ok := fields["additionalProperties"]; !ok {
-		fields["additionalProperties"] = false
+func yamlName(f reflect.StructField) string {
+	tag := f.Tag.Get("yaml")
+	if tag == "" {
+		return f.Name
 	}
-	return fields
+	return strings.SplitN(tag, ",", 2)[0]
 }
 
-func stringList(unique bool) map[string]any {
-	return map[string]any{
-		"type":        "array",
-		"items":       stringSchema(),
-		"uniqueItems": unique,
+// applyValidate interprets the subset of go-playground/validator tags that
+// has a JSON Schema equivalent. Validators before `dive` apply to the field
+// itself; validators after `dive` apply to the item / value schema (slice
+// elements, or map values).
+func applyValidate(tag string, schema map[string]any, required *[]string, name string) {
+	if tag == "" {
+		return
+	}
+	before, after, _ := strings.Cut(tag, "dive")
+	applyValidateParts(strings.Trim(before, ","), schema, required, name)
+	if after = strings.Trim(after, ","); after != "" {
+		if items := itemsSchemaOf(schema); items != nil {
+			applyValidateParts(after, items, nil, "")
+		}
 	}
 }
 
-func stringSchema() map[string]any {
-	return map[string]any{"type": "string"}
+func applyValidateParts(tag string, schema map[string]any, required *[]string, name string) {
+	if tag == "" {
+		return
+	}
+	omit := false
+	for _, p := range strings.Split(tag, ",") {
+		switch {
+		case p == "":
+		case p == "omitempty":
+			omit = true
+		case p == "required":
+			if !omit && required != nil {
+				*required = append(*required, name)
+			}
+		case strings.HasPrefix(p, "required_without="), strings.HasPrefix(p, "required_if="):
+			// Cross-field rule with no clean JSON Schema mapping; enforced at
+			// runtime by go-playground/validator.
+		case p == "cidr":
+			schema["format"] = "cidr"
+		case p == "unique":
+			if schema["type"] == "array" {
+				schema["uniqueItems"] = true
+			}
+		case strings.HasPrefix(p, "min="):
+			n, err := strconv.Atoi(strings.TrimPrefix(p, "min="))
+			if err != nil {
+				continue
+			}
+			switch schema["type"] {
+			case "object":
+				schema["minProperties"] = n
+			case "array":
+				schema["minItems"] = n
+			}
+		}
+	}
 }
 
-func boolSchema() map[string]any {
-	return map[string]any{"type": "boolean"}
+// itemsSchemaOf returns the schema for the items of an array or for the
+// values of an additionalProperties-typed object, whichever applies. Returns
+// nil for scalar schemas.
+func itemsSchemaOf(schema map[string]any) map[string]any {
+	if items, ok := schema["items"].(map[string]any); ok {
+		return items
+	}
+	if ap, ok := schema["additionalProperties"].(map[string]any); ok {
+		return ap
+	}
+	return nil
 }

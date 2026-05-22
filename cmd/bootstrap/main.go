@@ -24,7 +24,6 @@ func main() {
 }
 
 func configureLogging() {
-	zerolog.TimeFieldFormat = time.RFC3339
 	zerolog.CallerMarshalFunc = func(_ uintptr, file string, line int) string {
 		return filepath.ToSlash(file) + ":" + strconv.Itoa(line)
 	}
@@ -40,4 +39,7 @@ func configureLogging() {
 		},
 	}
 	log.Logger = zerolog.New(writer).With().Timestamp().Caller().Logger()
+	// zerolog's default is DebugLevel; suppress retry/helm debug chatter unless
+	// the user opts in via --verbose (wired in cli.Root).
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 }

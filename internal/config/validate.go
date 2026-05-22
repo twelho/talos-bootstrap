@@ -4,15 +4,21 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 
 	"github.com/go-playground/validator/v10"
 )
 
-func newValidator() *validator.Validate {
+// newValidator builds a validator whose `file` and `dir` tag handlers resolve
+// non-absolute paths against baseDir. Passing an empty baseDir falls back to
+// cwd. This lets Load validate on-disk paths from the config file's directory
+// without changing the process working directory.
+func newValidator(baseDir string) *validator.Validate {
 	v := validator.New(validator.WithRequiredStructEnabled())
 
 	v.RegisterTagNameFunc(func(fld reflect.StructField) string {
@@ -23,12 +29,19 @@ func newValidator() *validator.Validate {
 		return strings.SplitN(tag, ",", 2)[0]
 	})
 
+	resolve := func(p string) string {
+		if p == "" || filepath.IsAbs(p) || baseDir == "" {
+			return p
+		}
+		return filepath.Join(baseDir, p)
+	}
+
 	mustRegister(v, "file", func(fl validator.FieldLevel) bool {
-		st, err := os.Stat(fl.Field().String())
+		st, err := os.Stat(resolve(fl.Field().String()))
 		return err == nil && !st.IsDir()
 	})
 	mustRegister(v, "dir", func(fl validator.FieldLevel) bool {
-		st, err := os.Stat(fl.Field().String())
+		st, err := os.Stat(resolve(fl.Field().String()))
 		return err == nil && st.IsDir()
 	})
 
@@ -42,8 +55,8 @@ func mustRegister(v *validator.Validate, tag string, fn validator.Func) {
 }
 
 func formatErrors(err error) error {
-	verrs, ok := err.(validator.ValidationErrors)
-	if !ok {
+	var verrs validator.ValidationErrors
+	if !errors.As(err, &verrs) {
 		return err
 	}
 	var b strings.Builder
@@ -52,13 +65,17 @@ func formatErrors(err error) error {
 		b.WriteString("\n  ")
 		b.WriteString(formatField(fe))
 	}
-	return fmt.Errorf("%s", b.String())
+	return errors.New(b.String())
 }
 
 func formatField(fe validator.FieldError) string {
 	switch fe.Tag() {
 	case "required":
 		return fmt.Sprintf("%s: required", fe.Namespace())
+	case "required_without":
+		return fmt.Sprintf("%s: required when %s is not set", fe.Namespace(), fe.Param())
+	case "required_if":
+		return fmt.Sprintf("%s: required when %s", fe.Namespace(), fe.Param())
 	case "file":
 		return fmt.Sprintf("%s: file not found: %v", fe.Namespace(), fe.Value())
 	case "dir":

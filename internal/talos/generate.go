@@ -13,6 +13,7 @@
 package talos
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -46,6 +47,11 @@ type GenerateResult struct {
 // Generate writes the three artifacts that `talosctl gen config` produces:
 // controlplane.yaml, worker.yaml, and a talosconfig referencing the requested
 // endpoints. Cluster-wide patches are applied to both machine configs.
+//
+// Files are written relative to req.OutputDir, which is interpreted against
+// the process working directory. Callers that want artifacts in a specific
+// location must chdir or pass an absolute path: Generate itself does not
+// mutate cwd.
 func Generate(req GenerateRequest) (*GenerateResult, error) {
 	bundle, err := secrets.LoadBundle(req.SecretsPath)
 	if err != nil {
@@ -109,10 +115,18 @@ func Generate(req GenerateRequest) (*GenerateResult, error) {
 }
 
 // MergeTalosconfig folds src into the Talos client config at dst (creating
-// dst if missing) and ensures dst is mode 0600. This mirrors `talosctl config
-// merge` so subsequent `talosctl ...` invocations from a shell observe the
-// same context.
+// dst if missing). An empty dst resolves to the first writable default
+// talosconfig path ($TALOSCONFIG or ~/.talos/config), matching
+// `talosctl config merge`. The Talos client's Save handles the directory
+// creation and 0600 file mode, so this wrapper does not reapply them.
 func MergeTalosconfig(src, dst string) error {
+	if dst == "" {
+		resolved, err := defaultTalosconfigPath()
+		if err != nil {
+			return fmt.Errorf("resolve default talosconfig path: %w", err)
+		}
+		dst = resolved
+	}
 	srcCfg, err := clientconfig.Open(src)
 	if err != nil {
 		return fmt.Errorf("read source talosconfig: %w", err)
@@ -122,13 +136,27 @@ func MergeTalosconfig(src, dst string) error {
 		return fmt.Errorf("read destination talosconfig: %w", err)
 	}
 	dstCfg.Merge(srcCfg)
-	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
-		return fmt.Errorf("create talosconfig dir: %w", err)
-	}
 	if err := dstCfg.Save(dst); err != nil {
 		return fmt.Errorf("write talosconfig: %w", err)
 	}
-	return os.Chmod(dst, 0o600)
+	return nil
+}
+
+// defaultTalosconfigPath returns the first writable path in the Talos client's
+// default lookup order. Surfacing the resolution at the boundary (rather than
+// relying on Save("")) makes the failure mode explicit and stable against
+// SDK changes.
+func defaultTalosconfigPath() (string, error) {
+	paths, err := clientconfig.GetDefaultPaths()
+	if err != nil {
+		return "", err
+	}
+	for _, p := range paths {
+		if p.WriteAllowed {
+			return p.Path, nil
+		}
+	}
+	return "", fmt.Errorf("no writable talosconfig path found")
 }
 
 func writeMachineConfig(in *generate.Input, t machine.Type, patches []configpatcher.Patch, out string) (string, error) {
@@ -154,12 +182,16 @@ func writeMachineConfig(in *generate.Input, t machine.Type, patches []configpatc
 	return out, os.WriteFile(out, data, 0o600)
 }
 
-// DefaultTalosconfigPath returns the standard location of the user's
-// talosconfig: the TALOSCONFIG env var if set, else ~/.talos/config.
-func DefaultTalosconfigPath() string {
-	if p := os.Getenv("TALOSCONFIG"); p != "" {
-		return p
+// openOrEmptyTalosconfig loads a talosconfig file, returning an empty config
+// (rather than an error) if the file does not yet exist. This is the right
+// shape for "merge into the user's config, creating it if necessary".
+func openOrEmptyTalosconfig(path string) (*clientconfig.Config, error) {
+	cfg, err := clientconfig.Open(path)
+	if err == nil {
+		return cfg, nil
 	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".talos", "config")
+	if errors.Is(err, os.ErrNotExist) {
+		return &clientconfig.Config{Contexts: map[string]*clientconfig.Context{}}, nil
+	}
+	return nil, err
 }

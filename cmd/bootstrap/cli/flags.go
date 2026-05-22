@@ -13,10 +13,8 @@ import (
 // nodeOverrides is a pflag.Value that accumulates `--bootstrap` entries of the
 // form "node" (bootstrap, address by FQDN) or "node=endpoint" (bootstrap, use
 // this endpoint to reach the un-configured node). The flag may be repeated and
-// each occurrence may carry comma-separated entries.
-//
-// Repetition is preferred for endpoints containing commas (IPv6 literals);
-// the comma form remains supported for compatibility with the Python original.
+// each occurrence may carry comma-separated entries. Repetition is preferred
+// for endpoints containing commas (IPv6 literals).
 type nodeOverrides struct {
 	Nodes map[string]string
 }

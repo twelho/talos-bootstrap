@@ -6,12 +6,12 @@ package kube
 import (
 	"context"
 	"fmt"
+	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
@@ -44,7 +44,7 @@ func (c *Client) ApplyServerSide(ctx context.Context, objs []*unstructured.Unstr
 
 func (c *Client) applyOne(ctx context.Context, obj *unstructured.Unstructured) error {
 	gvk := obj.GroupVersionKind()
-	mapping, err := c.Mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+	mapping, err := c.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 	if err != nil {
 		return fmt.Errorf("rest mapping for %s: %w", gvk, err)
 	}
@@ -59,9 +59,9 @@ func (c *Client) applyOne(ctx context.Context, obj *unstructured.Unstructured) e
 		if ns == "" {
 			ns = "default"
 		}
-		ri = c.Dynamic.Resource(mapping.Resource).Namespace(ns)
+		ri = c.dynamic.Resource(mapping.Resource).Namespace(ns)
 	} else {
-		ri = c.Dynamic.Resource(mapping.Resource)
+		ri = c.dynamic.Resource(mapping.Resource)
 	}
 
 	force := true
@@ -73,21 +73,6 @@ func (c *Client) applyOne(ctx context.Context, obj *unstructured.Unstructured) e
 		return fmt.Errorf("apply %s/%s: %w", gvk.Kind, obj.GetName(), err)
 	}
 	return nil
-}
-
-// DeleteByLabel deletes every instance of the given resource matching a label
-// selector. Missing resources or 404s on individual deletes are tolerated so
-// the operation is idempotent.
-func (c *Client) DeleteByLabel(ctx context.Context, gvr GroupVersionResource, namespace, selector string) error {
-	sel, err := labels.Parse(selector)
-	if err != nil {
-		return fmt.Errorf("parse selector %q: %w", selector, err)
-	}
-	ri := c.namespacedOrCluster(gvr, namespace)
-	return ri.DeleteCollection(ctx,
-		metav1.DeleteOptions{},
-		metav1.ListOptions{LabelSelector: sel.String()},
-	)
 }
 
 // DeleteIfExists deletes a single named resource and returns nil if it does
@@ -104,7 +89,47 @@ func (c *Client) DeleteIfExists(ctx context.Context, gvr GroupVersionResource, n
 func (c *Client) namespacedOrCluster(gvr GroupVersionResource, namespace string) dynamic.ResourceInterface {
 	gv := gvr.toUnstructuredGVR()
 	if namespace == "" {
-		return c.Dynamic.Resource(gv)
+		return c.dynamic.Resource(gv)
 	}
-	return c.Dynamic.Resource(gv).Namespace(namespace)
+	return c.dynamic.Resource(gv).Namespace(namespace)
+}
+
+// WaitCRDEstablished polls the named CustomResourceDefinition until it reports
+// the Established condition as True. Polls also tolerate NotFound, so this can
+// be used to wait for CRDs that are created asynchronously by a controller.
+func (c *Client) WaitCRDEstablished(ctx context.Context, name string) error {
+	gvr := schema.GroupVersionResource{
+		Group: "apiextensions.k8s.io", Version: "v1", Resource: "customresourcedefinitions",
+	}
+	for {
+		u, err := c.dynamic.Resource(gvr).Get(ctx, name, metav1.GetOptions{})
+		if err == nil && crdEstablished(u) {
+			return nil
+		}
+		if err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("get crd %s: %w", name, err)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Second):
+		}
+	}
+}
+
+func crdEstablished(u *unstructured.Unstructured) bool {
+	conds, found, err := unstructured.NestedSlice(u.Object, "status", "conditions")
+	if err != nil || !found {
+		return false
+	}
+	for _, c := range conds {
+		m, ok := c.(map[string]any)
+		if !ok {
+			continue
+		}
+		if m["type"] == "Established" && m["status"] == "True" {
+			return true
+		}
+	}
+	return false
 }

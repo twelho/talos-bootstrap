@@ -13,20 +13,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"regexp"
 	"strings"
-	"time"
 
+	"github.com/twelho/talos-bootstrap/internal/githttp"
 	"github.com/twelho/talos-bootstrap/internal/kube"
 	"github.com/twelho/talos-bootstrap/internal/manifests"
 )
 
 const (
-	ciliumGoMod    = "https://raw.githubusercontent.com/cilium/cilium/v%s/go.mod"
-	releasesAPI    = "https://api.github.com/repos/kubernetes-sigs/gateway-api/releases"
-	bundleTemplate = "https://github.com/kubernetes-sigs/gateway-api/releases/download/%s/experimental-install.yaml"
+	ciliumGoMod     = "https://raw.githubusercontent.com/cilium/cilium/v%s/go.mod"
+	releasesAPI     = "https://api.github.com/repos/kubernetes-sigs/gateway-api/releases?per_page=100"
+	bundleTemplate  = "https://github.com/kubernetes-sigs/gateway-api/releases/download/%s/experimental-install.yaml"
+	maxReleasePages = 10
 )
 
 var (
@@ -35,9 +34,10 @@ var (
 )
 
 // ResolveVersion finds the highest non-rc Gateway API release tag that shares
-// the major.minor prefix with the version Cilium pins in go.mod.
+// the major.minor prefix with the version Cilium pins in go.mod. Pages through
+// GitHub's release list until a match is found or maxReleasePages is reached.
 func ResolveVersion(ctx context.Context, ciliumVersion string) (string, error) {
-	mod, err := httpGet(ctx, fmt.Sprintf(ciliumGoMod, ciliumVersion))
+	mod, err := githttp.Get(ctx, fmt.Sprintf(ciliumGoMod, ciliumVersion))
 	if err != nil {
 		return "", fmt.Errorf("fetch cilium go.mod: %w", err)
 	}
@@ -50,28 +50,38 @@ func ResolveVersion(ctx context.Context, ciliumVersion string) (string, error) {
 		return "", fmt.Errorf("invalid gateway-api version pin: %q", pinned[1])
 	}
 
-	releases, err := httpGet(ctx, releasesAPI)
-	if err != nil {
-		return "", fmt.Errorf("list gateway-api releases: %w", err)
-	}
-	var entries []struct {
-		TagName string `json:"tag_name"`
-	}
-	if err := json.Unmarshal(releases, &entries); err != nil {
-		return "", fmt.Errorf("parse gateway-api releases: %w", err)
-	}
-	for _, e := range entries {
-		if strings.HasPrefix(e.TagName, prefix) && !strings.Contains(e.TagName, "rc") {
-			return e.TagName, nil
+	url := releasesAPI
+	for page := 0; page < maxReleasePages; page++ {
+		body, next, err := githttp.GetWithNext(ctx, url)
+		if err != nil {
+			return "", fmt.Errorf("list gateway-api releases: %w", err)
 		}
+		var entries []struct {
+			TagName string `json:"tag_name"`
+		}
+		if err := json.Unmarshal(body, &entries); err != nil {
+			return "", fmt.Errorf("parse gateway-api releases: %w", err)
+		}
+		for _, e := range entries {
+			// Releases come newest-first; the first stable tag matching the
+			// major.minor prefix wins. Reject release candidates by their "-rc"
+			// suffix marker so we don't match arbitrary substrings.
+			if strings.HasPrefix(e.TagName, prefix) && !strings.Contains(e.TagName, "-rc") {
+				return e.TagName, nil
+			}
+		}
+		if next == "" {
+			break
+		}
+		url = next
 	}
-	return "", fmt.Errorf("no stable gateway-api release for %s", prefix)
+	return "", fmt.Errorf("no stable gateway-api release for %s (scanned %d pages)", prefix, maxReleasePages)
 }
 
 // InstallCRDs fetches the experimental-install bundle for the given Gateway
 // API release and server-side applies it.
 func InstallCRDs(ctx context.Context, c *kube.Client, version string) error {
-	body, err := httpGet(ctx, fmt.Sprintf(bundleTemplate, version))
+	body, err := githttp.Get(ctx, fmt.Sprintf(bundleTemplate, version))
 	if err != nil {
 		return fmt.Errorf("download gateway-api %s: %w", version, err)
 	}
@@ -83,21 +93,4 @@ func InstallCRDs(ctx context.Context, c *kube.Client, version string) error {
 		return fmt.Errorf("apply gateway-api manifests: %w", err)
 	}
 	return nil
-}
-
-func httpGet(ctx context.Context, url string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	cli := &http.Client{Timeout: 30 * time.Second}
-	resp, err := cli.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("GET %s: %s", url, resp.Status)
-	}
-	return io.ReadAll(resp.Body)
 }

@@ -42,6 +42,16 @@ It first generates Talos machine configurations and patches the nodes, then appl
 bootstrap cilium values clusters/<cluster>.yaml
 ```
 
+### Exporting cluster facts for downstream consumers
+
+Downstream GitOps repos that template against the same cluster (cluster name, API endpoint, native-routing CIDR, feature toggles) can read a stable JSON document instead of re-encoding those values by hand:
+
+```shell
+bootstrap facts clusters/<cluster>.yaml
+```
+
+The document is versioned via `schemaVersion`. Secrets paths, GPG fingerprints, and other local-filesystem or sensitive fields are intentionally omitted, so the output is safe to commit and publish.
+
 ## Secrets
 
 The bootstrapping process requires a `secrets.yaml` which contains the secrets for `talosctl` and the cluster. The expected location of this file is defined by the cluster configuration in `clusters`. Additionally, for SOPS, one can optionally provide a GPG ID/fingerprint or an age key file that can be imported into the cluster.

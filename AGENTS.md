@@ -9,3 +9,5 @@ Do NOT stack point fixes. Be smart about cascading effects and edge cases: alway
 NO em dashes.
 
 Keep `Makefile` and `flake.nix` in sync: if you change build flags, targets, or tooling in one, apply the equivalent change to the other.
+
+When `go.mod` or `go.sum` changes, `nix build` will fail with a hash mismatch and print the expected hash. Copy that value into `vendorHash` in `flake.nix`. This is the only manual step required to keep the Nix derivation current.

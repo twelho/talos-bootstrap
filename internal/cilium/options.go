@@ -1,98 +1,32 @@
 // SPDX-License-Identifier: MIT
 // (c) Dennis Marttinen, Veeti Poutsalo 2026
 
-// Package cilium owns the typed model of every Cilium installation knob this
-// project exposes. Options is the single source of truth: it is derived from a
-// user's Cluster.Cilium config plus cluster topology, and renders down to the
-// Helm values consumed by the Cilium chart. The same model is intended to drive
-// a future "emit values.yaml for external consumers" path without reproducing
-// the conditional logic anywhere else.
-//
-// Pointer fields denote tri-state knobs where absence means "leave the chart
-// defaults alone". Non-pointer fields are always rendered.
+// Package cilium reads the typed Cilium block from the cluster config and
+// renders it down to the Helm values consumed by the Cilium chart. The
+// renderer operates directly on config.CiliumConfig; the only non-config
+// input is Topology, which decides the single-operator heuristic.
 package cilium
 
 import "github.com/twelho/talos-bootstrap/internal/config"
 
+// Options is the renderer input. It wraps the user-supplied Cilium block (may
+// be nil) and the cluster topology. Computed accessors below encode the
+// implicit defaults so the renderer never has to reason about absent blocks.
 type Options struct {
-	Metrics       *Metrics
-	Hubble        *Hubble
-	Hardening     Hardening
-	GatewayAPI    *GatewayAPI
-	NodeIPAM      *NodeIPAM
-	NativeRouting *NativeRouting
-	Netkit        bool
-	BGP           *BGP
-	Masquerade    *Masquerade
-	// SingleOperator forces operator.replicas=1 when the topology cannot
-	// reliably schedule two operator pods.
-	SingleOperator bool
+	Cilium   *config.CiliumConfig
+	Topology Topology
 }
 
-type Metrics struct {
-	Enabled        bool
-	ServiceMonitor bool
-}
-
-type Hubble struct {
-	Enabled bool
-	Metrics *HubbleMetrics
-	Export  *HubbleExport
-}
-
-type HubbleMetrics struct {
-	Enabled        bool
-	ServiceMonitor bool
-}
-
-type HubbleExport struct {
-	Enabled bool
-	Path    string
-}
-
-type Hardening struct {
-	Enabled   bool
-	AuditMode bool
-}
-
-type GatewayAPI struct {
-	Enabled         bool
-	HostNetwork     bool
-	PrivilegedPorts bool
-}
-
-type NodeIPAM struct {
-	Enabled bool
-}
-
-type NativeRouting struct {
-	Enabled      bool
-	IPv4CIDR     string
-	DirectRoutes bool
-}
-
-type BGP struct {
-	Enabled bool
-}
-
-type Masquerade struct {
-	Enabled bool
-	BPF     bool
-}
-
-// Topology summarises the node count facts the option model needs. Keeping it
-// explicit lets callers compute it once and avoids dragging the full Config
-// into the renderer.
+// Topology summarises the node count facts the option model needs. Keeping
+// it explicit lets callers compute it once and avoids dragging the full
+// Config into the renderer.
 type Topology struct {
 	controlPlanes int
 	workers       int
 }
 
 func NewTopology(controlPlanes, workers int) Topology {
-	return Topology{
-		controlPlanes: controlPlanes,
-		workers:       workers,
-	}
+	return Topology{controlPlanes: controlPlanes, workers: workers}
 }
 
 func TopologyFromConfig(cfg *config.Config) Topology {
@@ -102,92 +36,49 @@ func TopologyFromConfig(cfg *config.Config) Topology {
 	return NewTopology(len(cfg.ControlPlane.Nodes), len(cfg.Worker.Nodes))
 }
 
-// FromConfig translates a validated Cluster.Cilium block plus topology into a
-// fully resolved Options value, applying the implicit defaults (hardening on,
-// audit mode on, single-operator topology heuristic) so the renderer never
-// has to know about absent blocks.
+// FromConfig wires a Cilium block and a topology into the renderer input.
+// No defaulting happens here; the accessors below apply defaults at use time.
 func FromConfig(c *config.CiliumConfig, t Topology) Options {
-	opts := Options{
-		Hardening: Hardening{Enabled: true, AuditMode: true},
-	}
-
-	if t.workers == 1 || (t.workers == 0 && t.controlPlanes == 1) {
-		opts.SingleOperator = true
-	}
-
-	if c == nil {
-		return opts
-	}
-
-	if c.Metrics != nil {
-		opts.Metrics = &Metrics{
-			Enabled:        c.Metrics.Enabled,
-			ServiceMonitor: c.Metrics.ServiceMonitor,
-		}
-	}
-
-	if c.Hubble != nil {
-		opts.Hubble = &Hubble{Enabled: c.Hubble.Enabled}
-		if c.Hubble.Metrics != nil {
-			opts.Hubble.Metrics = &HubbleMetrics{
-				Enabled:        c.Hubble.Metrics.Enabled,
-				ServiceMonitor: c.Hubble.Metrics.ServiceMonitor,
-			}
-		}
-		if c.Hubble.Export != nil {
-			opts.Hubble.Export = &HubbleExport{
-				Enabled: c.Hubble.Export.Enabled,
-				Path:    c.Hubble.Export.Path,
-			}
-		}
-	}
-
-	if c.Hardening != nil {
-		opts.Hardening = Hardening{
-			Enabled:   c.Hardening.Enabled,
-			AuditMode: c.Hardening.AuditMode,
-		}
-	}
-
-	if c.GatewayAPI != nil {
-		opts.GatewayAPI = &GatewayAPI{
-			Enabled:         c.GatewayAPI.Enabled,
-			HostNetwork:     c.GatewayAPI.HostNetwork,
-			PrivilegedPorts: c.GatewayAPI.PrivilegedPorts,
-		}
-	}
-
-	if c.NodeIPAM != nil {
-		opts.NodeIPAM = &NodeIPAM{Enabled: c.NodeIPAM.Enabled}
-	}
-
-	if c.NativeRouting != nil {
-		opts.NativeRouting = &NativeRouting{
-			Enabled:      c.NativeRouting.Enabled,
-			IPv4CIDR:     c.NativeRouting.IPv4CIDR,
-			DirectRoutes: c.NativeRouting.DirectRoutes,
-		}
-	}
-
-	opts.Netkit = c.Netkit
-
-	if c.BGP != nil {
-		opts.BGP = &BGP{Enabled: c.BGP.Enabled}
-	}
-
-	if c.Masquerade != nil {
-		opts.Masquerade = &Masquerade{
-			Enabled: c.Masquerade.Enabled,
-			BPF:     c.Masquerade.BPFEnabled(),
-		}
-	}
-
-	return opts
+	return Options{Cilium: c, Topology: t}
 }
 
 // GatewayAPIEnabled is a convenience for orchestrator code that needs to know
 // whether to install the Gateway API CRDs and restart the Cilium operator
 // after install.
 func (o Options) GatewayAPIEnabled() bool {
-	return o.GatewayAPI != nil && o.GatewayAPI.Enabled
+	return o.Cilium != nil && o.Cilium.GatewayAPI != nil && o.Cilium.GatewayAPI.Enabled
+}
+
+// GatewayAPIVersion returns the pinned gateway-api release (e.g. "v1.4.0").
+// Empty means "auto-resolve from Cilium's go.mod".
+func (o Options) GatewayAPIVersion() string {
+	if o.Cilium == nil || o.Cilium.GatewayAPI == nil {
+		return ""
+	}
+	return o.Cilium.GatewayAPI.Version
+}
+
+// singleOperator returns true when the topology cannot reliably schedule two
+// Cilium operator pods (single-worker or single-CP-only clusters).
+func (o Options) singleOperator() bool {
+	return o.Topology.workers == 1 || (o.Topology.workers == 0 && o.Topology.controlPlanes == 1)
+}
+
+// hardeningEnabled defaults to true: a NetworkPolicy-enforced posture is the
+// safer choice when the user hasn't opted out.
+func (o Options) hardeningEnabled() bool {
+	if o.Cilium == nil || o.Cilium.Hardening == nil {
+		return true
+	}
+	return o.Cilium.Hardening.Enabled
+}
+
+// hardeningAuditMode also defaults to true: audit-mode lets a fresh cluster
+// boot before any NetworkPolicies have been declared without locking the user
+// out. Production must turn this off after policies are in place.
+func (o Options) hardeningAuditMode() bool {
+	if o.Cilium == nil || o.Cilium.Hardening == nil {
+		return true
+	}
+	return o.Cilium.Hardening.AuditMode
 }

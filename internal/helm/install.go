@@ -8,9 +8,12 @@ package helm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
+	"github.com/rs/zerolog/log"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/chart/loader"
@@ -18,6 +21,7 @@ import (
 	"helm.sh/helm/v3/pkg/getter"
 	"helm.sh/helm/v3/pkg/release"
 	"helm.sh/helm/v3/pkg/repo"
+	"helm.sh/helm/v3/pkg/storage/driver"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 )
 
@@ -81,13 +85,17 @@ type UpgradeOrInstallRequest struct {
 }
 
 func (c *Client) UpgradeOrInstall(ctx context.Context, req UpgradeOrInstallRequest) (*release.Release, error) {
-	histAction := action.NewHistory(c.cfg)
-	histAction.Max = 1
-	if _, err := histAction.Run(req.ReleaseName); err != nil {
-		// No history -> install path.
+	hist := action.NewHistory(c.cfg)
+	hist.Max = 1
+	_, err := hist.Run(req.ReleaseName)
+	switch {
+	case errors.Is(err, driver.ErrReleaseNotFound):
 		return c.install(ctx, req)
+	case err != nil:
+		return nil, fmt.Errorf("read release history for %s: %w", req.ReleaseName, err)
+	default:
+		return c.upgrade(ctx, req)
 	}
-	return c.upgrade(ctx, req)
 }
 
 func (c *Client) install(ctx context.Context, req UpgradeOrInstallRequest) (*release.Release, error) {
@@ -102,6 +110,8 @@ func (c *Client) install(ctx context.Context, req UpgradeOrInstallRequest) (*rel
 	if err != nil {
 		return nil, err
 	}
+	log.Info().Str("release", req.ReleaseName).Str("chart", req.ChartRef).
+		Str("namespace", req.Namespace).Msg("installing helm release")
 	rel, err := inst.RunWithContext(ctx, chart, req.Values)
 	if err != nil {
 		return nil, fmt.Errorf("install %s: %w", req.ReleaseName, err)
@@ -114,12 +124,16 @@ func (c *Client) upgrade(ctx context.Context, req UpgradeOrInstallRequest) (*rel
 	up.Namespace = req.Namespace
 	up.Wait = req.Wait
 	up.Version = req.Version
-	up.Install = false
+	// Install=true lets helm self-heal if the release vanished between our
+	// history probe and the upgrade RPC (rare TOCTOU, but cheap to cover).
+	up.Install = true
 
 	chart, err := c.loadChart(up.ChartPathOptions, req.ChartRef, req.Version)
 	if err != nil {
 		return nil, err
 	}
+	log.Info().Str("release", req.ReleaseName).Str("chart", req.ChartRef).
+		Str("namespace", req.Namespace).Msg("upgrading helm release")
 	rel, err := up.RunWithContext(ctx, req.ReleaseName, chart, req.Values)
 	if err != nil {
 		return nil, fmt.Errorf("upgrade %s: %w", req.ReleaseName, err)
@@ -143,7 +157,7 @@ func (c *Client) loadChart(opts action.ChartPathOptions, ref, version string) (*
 // LatestVersion looks up the latest stable version of a chart in a configured
 // repository. Replaces `helm search repo <chart> -o json` parsing.
 func (c *Client) LatestVersion(repoName, chartName string) (string, error) {
-	idx, err := repo.LoadIndexFile(c.settings.RepositoryCache + "/" + repoName + "-index.yaml")
+	idx, err := repo.LoadIndexFile(filepath.Join(c.settings.RepositoryCache, repoName+"-index.yaml"))
 	if err != nil {
 		return "", fmt.Errorf("load index for %q: %w", repoName, err)
 	}
@@ -155,7 +169,5 @@ func (c *Client) LatestVersion(repoName, chartName string) (string, error) {
 }
 
 func debugLog(format string, v ...any) {
-	if os.Getenv("HELM_DEBUG") != "" {
-		fmt.Fprintf(os.Stderr, "helm: "+format+"\n", v...)
-	}
+	log.Debug().Msgf("helm: "+format, v...)
 }

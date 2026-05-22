@@ -3,8 +3,9 @@
 
 // Package manifests turns a Kustomize directory into typed unstructured
 // resources, partitions CRDs from everything else, and applies them to a
-// cluster in the right order. It replaces the regex-based YAML splitting from
-// the Python original with a real YAML stream parser.
+// cluster in the right order. CRDs are applied first and waited on for the
+// Established condition before the rest are applied, so a single bundle may
+// safely mix a CRD with an instance of that CR.
 package manifests
 
 import (
@@ -15,18 +16,19 @@ import (
 	"io"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/kustomize/api/krusty"
 	"sigs.k8s.io/kustomize/api/types"
 	"sigs.k8s.io/kustomize/kyaml/filesys"
-	"sigs.k8s.io/yaml"
-	yamlv3 "gopkg.in/yaml.v3"
 
 	"github.com/twelho/talos-bootstrap/internal/kube"
 )
 
 const (
-	crdAPIVersion = "apiextensions.k8s.io/v1"
-	crdKind       = "CustomResourceDefinition"
+	crdAPIVersion       = "apiextensions.k8s.io/v1"
+	crdKind             = "CustomResourceDefinition"
+	namespaceAPIVersion = "v1"
+	namespaceKind       = "Namespace"
 )
 
 // Render runs Kustomize on the given directory with helm enabled and root
@@ -49,29 +51,51 @@ func Render(dir string) ([]*unstructured.Unstructured, error) {
 	return decodeStream(out)
 }
 
-// Partition separates CustomResourceDefinitions from the rest. CRDs must be
-// applied before resources that reference them.
-func Partition(objs []*unstructured.Unstructured) (crds, rest []*unstructured.Unstructured) {
+// Partition splits objects into CRDs, Namespaces, and everything else. Apply
+// orders them as CRDs -> Namespaces -> rest so that:
+//   - a bundle may mix a CRD with an instance of that CR
+//   - a bundle may mix a Namespace with resources that live in it (a 404 race
+//     otherwise hits namespaced resources whose namespace is created in the
+//     same apply pass)
+func Partition(objs []*unstructured.Unstructured) (crds, namespaces, rest []*unstructured.Unstructured) {
 	for _, o := range objs {
-		if isCRD(o) {
+		switch {
+		case isCRD(o):
 			crds = append(crds, o)
-		} else {
+		case isNamespace(o):
+			namespaces = append(namespaces, o)
+		default:
 			rest = append(rest, o)
 		}
 	}
-	return crds, rest
+	return crds, namespaces, rest
 }
 
 func isCRD(o *unstructured.Unstructured) bool {
 	return o.GetAPIVersion() == crdAPIVersion && o.GetKind() == crdKind
 }
 
-// Apply server-side applies CRDs first, then everything else. This matches
-// the Python original and avoids reconciliation order races on first install.
+func isNamespace(o *unstructured.Unstructured) bool {
+	return o.GetAPIVersion() == namespaceAPIVersion && o.GetKind() == namespaceKind
+}
+
+// Apply server-side applies CRDs first, waits for them to become Established,
+// then applies Namespaces, then everything else. The ordering avoids the
+// races where an instance of a freshly-applied CRD is rejected (its API
+// endpoint is not yet served) or a namespaced resource is rejected because
+// its Namespace has not yet committed.
 func Apply(ctx context.Context, c *kube.Client, objs []*unstructured.Unstructured) error {
-	crds, rest := Partition(objs)
+	crds, namespaces, rest := Partition(objs)
 	if err := c.ApplyServerSide(ctx, crds); err != nil {
 		return fmt.Errorf("apply CRDs: %w", err)
+	}
+	for _, crd := range crds {
+		if err := c.WaitCRDEstablished(ctx, crd.GetName()); err != nil {
+			return fmt.Errorf("wait CRD %s: %w", crd.GetName(), err)
+		}
+	}
+	if err := c.ApplyServerSide(ctx, namespaces); err != nil {
+		return fmt.Errorf("apply namespaces: %w", err)
 	}
 	if err := c.ApplyServerSide(ctx, rest); err != nil {
 		return fmt.Errorf("apply manifests: %w", err)
@@ -87,29 +111,15 @@ func DecodeStream(data []byte) ([]*unstructured.Unstructured, error) {
 }
 
 func decodeStream(data []byte) ([]*unstructured.Unstructured, error) {
-	dec := yamlv3.NewDecoder(bytes.NewReader(data))
+	dec := utilyaml.NewYAMLOrJSONDecoder(bytes.NewReader(data), 4096)
 	var out []*unstructured.Unstructured
 	for {
-		var raw any
-		if err := dec.Decode(&raw); err != nil {
+		obj := &unstructured.Unstructured{}
+		if err := dec.Decode(&obj.Object); err != nil {
 			if errors.Is(err, io.EOF) {
 				break
 			}
 			return nil, fmt.Errorf("yaml decode: %w", err)
-		}
-		if raw == nil {
-			continue
-		}
-		// Re-marshal as JSON via sigs.k8s.io/yaml so that integer/string
-		// distinctions match what client-go expects, then unmarshal to
-		// Unstructured.
-		j, err := yaml.Marshal(raw)
-		if err != nil {
-			return nil, fmt.Errorf("yaml re-encode: %w", err)
-		}
-		obj := &unstructured.Unstructured{}
-		if err := yaml.Unmarshal(j, &obj.Object); err != nil {
-			return nil, fmt.Errorf("decode unstructured: %w", err)
 		}
 		if len(obj.Object) == 0 {
 			continue

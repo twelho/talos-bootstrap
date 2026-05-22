@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"time"
 
 	"github.com/cosi-project/runtime/pkg/resource"
@@ -22,8 +21,7 @@ import (
 )
 
 // Service exposes Talos node operations using a single in-memory talosconfig.
-// It is constructed from a saved talosconfig file and is safe for concurrent
-// use across goroutines: each operation builds its own short-lived gRPC client.
+// Each operation builds its own short-lived gRPC client.
 type Service struct {
 	cfg *clientconfig.Config
 }
@@ -93,9 +91,11 @@ func (s *Service) ApplyConfig(ctx context.Context, node string, data []byte, o A
 }
 
 // Bootstrap calls etcd bootstrap on a single control-plane node, retrying
-// until success or context cancellation. Bootstrap commonly fails with
-// FailedPrecondition while the node is still booting (e.g. time not in sync),
-// so retry-on-error is the correct behaviour here.
+// transient errors until success, a permanent failure, or context cancel.
+// Bootstrap commonly fails with FailedPrecondition while the node is still
+// booting (e.g. time not in sync), so transient retries are the correct
+// behaviour here. AlreadyExists is treated as success: re-bootstrapping an
+// already-initialised etcd is a no-op the user should not have to handle.
 func (s *Service) Bootstrap(ctx context.Context, node string, retry time.Duration) error {
 	cli, ctx, err := s.connect(ctx, node, "", false)
 	if err != nil {
@@ -103,20 +103,13 @@ func (s *Service) Bootstrap(ctx context.Context, node string, retry time.Duratio
 	}
 	defer cli.Close()
 
-	for {
+	return retryUntil(ctx, "bootstrap etcd on "+node, retry, func() error {
 		err := cli.Bootstrap(ctx, &machineapi.BootstrapRequest{})
-		if err == nil {
+		if alreadyExists(err) {
 			return nil
 		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(retry):
-		}
-	}
+		return err
+	})
 }
 
 // Reboot triggers a default-mode reboot on the listed nodes without waiting
@@ -211,24 +204,18 @@ func (s *Service) Stage(ctx context.Context, node string, o StageOpts) (runtime.
 	return ms.TypedSpec().Stage, nil
 }
 
-// WaitStage polls until the node reports the requested stage. Transient
-// connection or read errors are tolerated, so this can be used while a node
-// is rebooting.
+// WaitStage polls until the node reports the requested stage.
 func (s *Service) WaitStage(ctx context.Context, node string, want runtime.MachineStage, o StageOpts) error {
-	for {
+	return retryUntil(ctx, "wait for stage "+want.String()+" on "+node, time.Second, func() error {
 		got, err := s.Stage(ctx, node, o)
-		if err == nil && got == want {
-			return nil
+		if err != nil {
+			return err
 		}
-		if ctx.Err() != nil {
-			return ctx.Err()
+		if got != want {
+			return fmt.Errorf("stage %s, want %s", got, want)
 		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(time.Second):
-		}
-	}
+		return nil
+	})
 }
 
 func (s *Service) connect(ctx context.Context, node, endpoint string, insecure bool) (*client.Client, context.Context, error) {
@@ -284,24 +271,9 @@ func newInsecureClient(ctx context.Context, endpoint string) (*client.Client, er
 	return c, nil
 }
 
-// openOrEmptyTalosconfig loads a talosconfig file, returning an empty config
-// (rather than an error) if the file does not yet exist. This is the right
-// shape for "merge into the user's config, creating it if necessary".
-func openOrEmptyTalosconfig(path string) (*clientconfig.Config, error) {
-	cfg, err := clientconfig.Open(path)
-	if err == nil {
-		return cfg, nil
-	}
-	if errors.Is(err, os.ErrNotExist) {
-		return &clientconfig.Config{Contexts: map[string]*clientconfig.Context{}}, nil
-	}
-	return nil, err
-}
-
 // Stages exposes the runtime.MachineStage constants this package needs so
 // callers do not have to import the runtime resources package directly.
-var (
+const (
 	StageMaintenance = runtime.MachineStageMaintenance
-	StageBooting     = runtime.MachineStageBooting
 	StageRunning     = runtime.MachineStageRunning
 )

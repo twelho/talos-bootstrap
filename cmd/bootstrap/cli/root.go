@@ -6,17 +6,29 @@
 // operation is a one-file change.
 package cli
 
-import "github.com/spf13/cobra"
+import (
+	"github.com/rs/zerolog"
+	"github.com/spf13/cobra"
+)
 
 func Root() *cobra.Command {
+	var verbose bool
 	root := &cobra.Command{
 		Use:           "talos-bootstrap",
 		Short:         "Bootstrap and configure a provisioned Talos Linux cluster",
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		PersistentPreRun: func(_ *cobra.Command, _ []string) {
+			if verbose {
+				zerolog.SetGlobalLevel(zerolog.DebugLevel)
+			}
+		},
 	}
+	root.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false,
+		"emit debug-level logs (retry loops, helm SDK, etc.)")
 	root.AddCommand(bootstrapCmd())
 	root.AddCommand(ciliumCmd())
+	root.AddCommand(factsCmd())
 	root.AddCommand(schemaCmd())
 	return root
 }

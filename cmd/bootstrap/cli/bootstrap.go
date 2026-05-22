@@ -25,12 +25,13 @@ func bootstrapCmd() *cobra.Command {
 		Short: "Bootstrap a Talos cluster end-to-end from a YAML cluster config",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			cfg, _, err := config.Load(args[0])
+			cfg, dir, err := config.Load(args[0])
 			if err != nil {
 				return err
 			}
-			b, err := bootstrap.New(bootstrap.BootstrapOptions{
+			p, err := bootstrap.New(bootstrap.Options{
 				Config:                   cfg,
+				Dir:                      dir,
 				BootstrapNodes:           overrides.Nodes,
 				SkipClusterConfiguration: skip,
 			})
@@ -39,7 +40,7 @@ func bootstrapCmd() *cobra.Command {
 			}
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
-			return b.Run(ctx)
+			return p.Run(ctx)
 		},
 	}
 	cmd.Flags().VarP(&overrides, "bootstrap", "b",

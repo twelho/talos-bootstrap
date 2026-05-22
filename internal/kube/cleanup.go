@@ -19,57 +19,59 @@ import (
 // avoids spurious errors during the Flannel/kube-proxy purge.
 var excludedResourceTypes = map[string]struct{}{
 	"componentstatuses": {},
-	"validatingadmissionpolicies.admissionregistration.k8s.io":        {},
-	"validatingadmissionpolicybindings.admissionregistration.k8s.io":  {},
-	"nodes.metrics.k8s.io":                                            {},
-	"pods.metrics.k8s.io":                                             {},
+	"validatingadmissionpolicies.admissionregistration.k8s.io":       {},
+	"validatingadmissionpolicybindings.admissionregistration.k8s.io": {},
+	"nodes.metrics.k8s.io": {},
+	"pods.metrics.k8s.io":  {},
 }
 
 // PurgeBySelector deletes every listable resource (cluster-scoped and namespaced
-// in the given namespace) matching the label selector. This replaces the
-// `kubectl api-resources --verbs=list` plus `kubectl delete` shell pipeline used
-// to remove the default CNI's resources.
+// in the given namespace) matching the label selector. Used to remove the
+// default CNI's resources.
 func (c *Client) PurgeBySelector(ctx context.Context, namespace, selector string) error {
-	clusterGVRs, namespacedGVRs, err := c.discoverDeletableGVRs(ctx)
+	clusterGVRs, namespacedGVRs, err := c.discoverDeletableGVRs()
 	if err != nil {
 		return err
 	}
 	for _, gvr := range clusterGVRs {
-		if err := c.tryDeleteCollection(ctx, gvr, "", &selector, ""); err != nil {
+		if err := c.deleteCollectionByLabel(ctx, gvr, "", selector); err != nil {
 			return err
 		}
 	}
 	for _, gvr := range namespacedGVRs {
-		if err := c.tryDeleteCollection(ctx, gvr, namespace, &selector, ""); err != nil {
+		if err := c.deleteCollectionByLabel(ctx, gvr, namespace, selector); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// PurgeByName deletes a single named resource, by name, across every
-// listable type in scope. This replaces the `kubectl delete <types> kube-proxy`
-// pattern from the Python original.
+// PurgeByName deletes the named resource across every listable, deletable type
+// in scope (cluster-scoped + namespaced within the given namespace). The wide
+// blast radius is intentional: callers use this to remove a "matched set" of
+// objects that share a name (Deployment, Service, ServiceAccount, ClusterRole,
+// ClusterRoleBinding, etc. for kube-proxy). Never call with a name that may
+// collide with unrelated objects.
 func (c *Client) PurgeByName(ctx context.Context, namespace, name string) error {
-	clusterGVRs, namespacedGVRs, err := c.discoverDeletableGVRs(ctx)
+	clusterGVRs, namespacedGVRs, err := c.discoverDeletableGVRs()
 	if err != nil {
 		return err
 	}
 	for _, gvr := range clusterGVRs {
-		if err := c.tryDeleteCollection(ctx, gvr, "", nil, name); err != nil {
+		if err := c.DeleteIfExists(ctx, gvr, "", name); err != nil {
 			return err
 		}
 	}
 	for _, gvr := range namespacedGVRs {
-		if err := c.tryDeleteCollection(ctx, gvr, namespace, nil, name); err != nil {
+		if err := c.DeleteIfExists(ctx, gvr, namespace, name); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (c *Client) discoverDeletableGVRs(_ context.Context) (cluster, namespaced []GroupVersionResource, err error) {
-	apis, err := c.Discovery.ServerPreferredResources()
+func (c *Client) discoverDeletableGVRs() (cluster, namespaced []GroupVersionResource, err error) {
+	apis, err := c.discovery.ServerPreferredResources()
 	if err != nil {
 		// ServerPreferredResources can return a partial result with an error
 		// when some API groups are unhealthy. As long as we have data we keep
@@ -110,18 +112,11 @@ func (c *Client) discoverDeletableGVRs(_ context.Context) (cluster, namespaced [
 	return cluster, namespaced, nil
 }
 
-
-func (c *Client) tryDeleteCollection(ctx context.Context, gvr GroupVersionResource, namespace string, selector *string, name string) error {
+func (c *Client) deleteCollectionByLabel(ctx context.Context, gvr GroupVersionResource, namespace, selector string) error {
 	ri := c.namespacedOrCluster(gvr, namespace)
-	if name != "" {
-		return c.DeleteIfExists(ctx, gvr, namespace, name)
-	}
-	if selector == nil {
-		return nil
-	}
 	err := ri.DeleteCollection(ctx,
 		metav1.DeleteOptions{},
-		metav1.ListOptions{LabelSelector: *selector},
+		metav1.ListOptions{LabelSelector: selector},
 	)
 	if err == nil {
 		return nil
@@ -131,5 +126,5 @@ func (c *Client) tryDeleteCollection(ctx context.Context, gvr GroupVersionResour
 	if apierrors.IsMethodNotSupported(err) || apierrors.IsNotFound(err) {
 		return nil
 	}
-	return fmt.Errorf("delete %s in %q with selector %q: %w", gvr.Resource, namespace, *selector, err)
+	return fmt.Errorf("delete %s in %q with selector %q: %w", gvr.Resource, namespace, selector, err)
 }

@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "cluster": {
+    "name": "my-cluster",
+    "domain": "example.com",
+    "fqdn": "my-cluster.example.com"
+  },
+  "network": {
+    "ipv4NativeRoutingCIDR": "10.244.0.0/16"
+  },
+  "controlPlane": {
+    "record": "my-cluster-control-plane",
+    "endpoint": "talos-master-1.example.com:6443",
+    "nodes": [
+      "talos-master-1",
+      "talos-master-2",
+      "talos-master-3"
+    ]
+  },
+  "worker": {
+    "nodes": [
+      "talos-worker-1",
+      "talos-worker-2",
+      "talos-worker-3"
+    ]
+  },
+  "features": {
+    "gatewayAPI": false,
+    "bgp": true,
+    "hubble": false,
+    "metrics": false,
+    "serviceMonitor": false
+  }
+}

@@ -72,6 +72,9 @@ config_schema = Schema(
                 Optional("node-ipam"): {
                     "enabled": bool,
                 },
+                Optional("ipv6"): {
+                    "enabled": bool,
+                },
                 Optional("netkit"): bool,
                 Optional("bgp"): {
                     "enabled": bool,
@@ -764,6 +767,12 @@ def main():
         if node_ipam["enabled"]:
             cilium_opts += [
                 "nodeIPAM.enabled=true",  # Use node IPs for LoadBalancer services
+            ]
+
+    if ipv6 := config["cluster"]["cilium"].get("ipv6"):
+        if ipv6["enabled"]:
+            cilium_opts += [
+                "ipv6.enabled=true",  # Enable IPv6 support in Cilium (independent from Kubernetes)
             ]
 
     if gw_api := config["cluster"]["cilium"].get("gateway-api"):

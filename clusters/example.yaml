@@ -36,6 +36,8 @@ cluster:
       enabled: true # Enable Cilium native routing datapath
       ipv4-cidr: 10.244.0.0/16 # IPv4 CIDR used for native routing
       direct-routes: true # Enable if you have L2 connectivity between all nodes
+    ipv6: # IPv6 configuration, independent from Kubernetes (optional)
+      enabled: true # Enable IPv6 support in Cilium
     # Enable Cilium netkit device mode instead of veth (optional)
     # WARNING: REQUIRES kernel 6.8 or newer (Talos v1.9), cluster WILL BECOME INACCESSIBLE if enabled on older kernels!
     # For details, see https://docs.cilium.io/en/latest/operations/performance/tuning/#netkit-device-mode
